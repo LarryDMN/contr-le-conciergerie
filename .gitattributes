@@ -1,0 +1,3 @@
+# Les distributions minifiées restent identiques aux fichiers officiels,
+# y compris les espaces de fin de ligne présents dans leurs notices de licence.
+vendor/*.min.js whitespace=-blank-at-eol
