@@ -3,6 +3,7 @@
   'use strict';
 
   const config = window.CONCIERGERIE_CONFIG;
+  const buildings = window.CONCIERGERIES;
   const items = config.sections.flatMap(section => section.groups.flatMap(group => group.items));
   const itemIds = new Set(items.map(item => item.id));
   const $ = selector => document.querySelector(selector);
@@ -33,6 +34,10 @@
   let noticeTimer;
   const photoJobs = new Set();
   const current = () => controls.get(currentId);
+  const buildingName = record => record.buildingName || record.address ||
+    (record.buildingId === undefined ? 'Contrôle sans adresse' : 'Immeuble à choisir');
+  // null désigne un nouveau brouillon ; l'absence de champ désigne un ancien contrôle.
+  const needsBuilding = record => record.buildingId === null;
   const ratedCount = record => items.filter(item => record.rows[item.id]?.rating).length;
   const sortedControls = () => [...controls.values()].sort((a, b) =>
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
@@ -86,6 +91,8 @@
 
   const blankRow = () => ({ rating: null, remark: '', photos: [] });
   function normalizeRecord(record) {
+    // Aucun rapprochement automatique : les anciennes adresses restent intactes.
+    record.buildingName ??= '';
     record.rows ||= {};
     items.forEach(item => { record.rows[item.id] ||= blankRow(); });
     record.comments ||= { text: '', photos: [] };
@@ -95,7 +102,7 @@
   function makeControl() {
     const timestamp = new Date().toISOString();
     return normalizeRecord({ id: uid(), createdAt: timestamp, updatedAt: timestamp,
-      address: config.defaultAddress, concierge: '', date: today(), rows: {},
+      buildingId: null, buildingName: '', address: '', concierge: '', date: today(), rows: {},
       comments: { text: '', photos: [] } });
   }
 
@@ -159,7 +166,7 @@
         <button type="button" class="open-control" data-open-control="${escapeHTML(record.id)}"
           ${record.id === currentId ? 'aria-current="true"' : ''}>
           <span class="control-date">${escapeHTML(displayDate(record.date))}</span>
-          <span class="control-address">${escapeHTML(record.address || 'Adresse non renseignée')}</span>
+          <span class="control-address">${escapeHTML(buildingName(record))}</span>
           <span class="control-meta">${escapeHTML(record.concierge || 'Concierge non renseigné')}
             <span>${ratedCount(record)} / ${items.length}</span></span>
         </button>
@@ -233,6 +240,7 @@
 
   function refreshDerived() {
     const record = current();
+    $('#selectedBuildingName').textContent = buildingName(record);
     const count = ratedCount(record);
     $('#progressText').textContent = `${count} / ${items.length} lignes notées`;
     $('#progressBar').max = items.length;
@@ -259,12 +267,59 @@
 
   function renderEditor() {
     const record = current();
+    renderBuildingSelection();
     $('#address').value = record.address;
     $('#concierge').value = record.concierge;
     $('#controlDate').value = record.date;
     renderSections();
     refreshDerived();
     setStorageStatus();
+  }
+
+  function renderBuildingSelection() {
+    const record = current();
+    const legacy = record.buildingId === undefined;
+    const missing = !!record.buildingId && !buildings.some(building => building.id === record.buildingId);
+    const select = $('#buildingSelect');
+    select.innerHTML = `<option value="" disabled>${legacy ? 'Adresse historique conservée' : 'Choisir un immeuble'}</option>` +
+      (missing ? `<option value="${escapeHTML(record.buildingId)}">${escapeHTML(buildingName(record))} (retiré de la liste)</option>` : '') +
+      buildings.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
+    select.value = record.buildingId || '';
+    select.required = !legacy;
+    $('#buildingHelp').textContent = legacy
+      ? 'Contrôle antérieur : l’adresse et le concierge enregistrés sont conservés.'
+      : missing ? 'Cet immeuble a été retiré de la liste. Les informations de ce contrôle sont conservées.'
+        : needsBuilding(record) ? 'Choisissez l’immeuble pour commencer le contrôle.'
+          : 'Adresse et concierge repris de la liste lors du choix de l’immeuble.';
+    $('#inspectionFields').disabled = needsBuilding(record);
+    $('#saveControl').disabled = needsBuilding(record);
+    $('#printControl').disabled = needsBuilding(record);
+  }
+
+  function requireBuilding() {
+    if (!needsBuilding(current())) return true;
+    $('#buildingSelect').reportValidity();
+    $('#buildingSelect').focus();
+    notify('Choisissez un immeuble avant de remplir ou d’imprimer ce contrôle.', true);
+    return false;
+  }
+
+  function chooseBuilding() {
+    const building = buildings.find(building => building.id === $('#buildingSelect').value);
+    if (!building) return;
+    const record = current();
+    if (record.address && (record.address !== building.adresse || record.concierge !== building.concierge) &&
+      !window.confirm('Changer l’immeuble de ce contrôle ? Son adresse et son concierge seront remplacés par ceux de la liste. Les notes, remarques et photos seront conservées.')) {
+      renderBuildingSelection();
+      return;
+    }
+    // Stocker un instantané, et non une référence recalculée à chaque réouverture.
+    record.buildingId = building.id;
+    record.buildingName = building.nom;
+    record.address = building.adresse;
+    record.concierge = building.concierge;
+    markChanged(record);
+    renderEditor();
   }
 
   async function newControl() {
@@ -441,6 +496,9 @@
       if (!record || typeof record.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(record.id) ||
         ids.has(record.id) || !validDate(record.date) || !record.rows || typeof record.rows !== 'object' ||
         Array.isArray(record.rows) || !record.comments) invalid();
+      // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
+      if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
+      if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
       ids.add(record.id);
       const rows = {};
       Object.entries(record.rows).forEach(([key, row]) => {
@@ -449,6 +507,8 @@
         rows[key] = { rating: row.rating, remark: string(row.remark), photos: photos(row.photos) };
       });
       return normalizeRecord({ id: record.id, date: record.date, address: string(record.address),
+        ...(Object.hasOwn(record, 'buildingId') ? { buildingId: record.buildingId } : {}),
+        buildingName: record.buildingName ?? '',
         concierge: string(record.concierge), createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
@@ -480,8 +540,10 @@
   function renderPrintReport() {
     const record = current();
     if (!record) return;
-    $('#printReport').innerHTML = `<header class="print-header"><h1>Modèle de contrôle des conciergeries</h1>
-      <dl class="print-metadata"><div><dt>Adresse de l’immeuble</dt><dd>${escapeHTML(record.address)}</dd></div>
+    $('#printReport').innerHTML = `<header class="print-header"><img class="print-logo" src="logo-horizontal.png" alt="E. Blanco SA">
+      <h1>Modèle de contrôle des conciergeries</h1>
+      <dl class="print-metadata">${record.buildingName ? `<div><dt>Immeuble</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
+        <div><dt>Adresse de l’immeuble</dt><dd>${escapeHTML(record.address)}</dd></div>
         <div><dt>Concierge</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
         <div><dt>Date</dt><dd>${escapeHTML(displayDate(record.date))}</dd></div></dl>
       <p class="print-legend">1 = Très bon · 2 = Bon · 3 = Moyen · 4 = Mauvais</p>
@@ -502,6 +564,7 @@
   }
 
   async function printControl() {
+    if (!requireBuilding()) return;
     await flushChanges();
     renderPrintReport();
     await Promise.all([...$('#printReport').querySelectorAll('img')].map(image => image.decode().catch(() => {})));
@@ -510,7 +573,11 @@
 
   function bindEvents() {
     $('#newControl').addEventListener('click', () => perform(newControl));
-    $('#saveControl').addEventListener('click', () => perform(async () => { await flushChanges(); notify('Contrôle enregistré sur cet appareil.'); }));
+    $('#saveControl').addEventListener('click', () => perform(async () => {
+      if (!requireBuilding()) return;
+      await flushChanges();
+      notify('Contrôle enregistré sur cet appareil.');
+    }));
     $('#duplicateControl').addEventListener('click', () => perform(duplicateControl));
     $('#deleteControl').addEventListener('click', () => perform(deleteControl));
     $('#printControl').addEventListener('click', () => perform(printControl));
@@ -525,10 +592,11 @@
       const button = event.target.closest('[data-open-control]');
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
-    ['address', 'concierge', 'controlDate'].forEach(id => {
+    $('#buildingSelect').addEventListener('change', chooseBuilding);
+    ['controlDate'].forEach(id => {
       $(`#${id}`).addEventListener('input', event => {
         if (id === 'controlDate' && !validDate(event.target.value)) return;
-        current()[id === 'controlDate' ? 'date' : id] = event.target.value;
+        current().date = event.target.value;
         markChanged();
         renderList();
       });
@@ -589,7 +657,22 @@
     window.addEventListener('offline', update);
     if ('serviceWorker' in navigator && ['https:', 'http:'].includes(location.protocol)) {
       try {
-        await navigator.serviceWorker.register('./sw.js');
+        const registration = await navigator.serviceWorker.register('./sw.js');
+        const worker = registration.installing || registration.waiting || registration.active;
+        // Un ancien worker actif ne prouve pas que le nouveau logo et la liste sont en cache.
+        if (worker && worker.state !== 'activated') {
+          await new Promise((resolve, reject) => {
+            const changed = () => {
+              if (worker.state === 'activated' || worker.state === 'redundant') {
+                worker.removeEventListener('statechange', changed);
+                if (worker.state === 'activated') resolve();
+                else reject(new Error('Installation du cache interrompue.'));
+              }
+            };
+            worker.addEventListener('statechange', changed);
+            changed();
+          });
+        }
         await navigator.serviceWorker.ready;
         cached = true;
         update();
@@ -599,8 +682,26 @@
     }
   }
 
+  // Mesurer les barres fixes garde le formulaire accessible à 320 px et au zoom.
+  function setupFixedLayout() {
+    const header = $('.app-header');
+    const bottom = $('.bottom-actions');
+    const measure = () => {
+      document.documentElement.style.setProperty('--header-height', `${Math.ceil(header.getBoundingClientRect().height)}px`);
+      document.documentElement.style.setProperty('--bottom-height', `${Math.ceil(bottom.getBoundingClientRect().height)}px`);
+    };
+    if ('ResizeObserver' in window) {
+      const observer = new ResizeObserver(measure);
+      observer.observe(header);
+      observer.observe(bottom);
+    }
+    window.addEventListener('resize', measure);
+    measure();
+  }
+
   async function initialize() {
     try {
+      setupFixedLayout();
       database = await openDatabase();
       database.onversionchange = () => {
         database.close();

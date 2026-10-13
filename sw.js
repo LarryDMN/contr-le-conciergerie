@@ -3,9 +3,9 @@
  * Incrémenter la version du cache lors d'une publication de nouveaux fichiers.
  */
 const CACHE_PREFIX = "controles-conciergerie-";
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const INDEX_URL = new URL("index.html", self.registration.scope).href;
-const ASSET_URLS = ["index.html", "style.css", "app.js", "config.js"]
+const ASSET_URLS = ["index.html", "style.css?v=2", "app.js?v=2", "config.js", "data/conciergeries.js", "logo-horizontal.png"]
   .map((path) => new URL(path, self.registration.scope).href);
 
 self.addEventListener("install", (event) => {
