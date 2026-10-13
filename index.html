@@ -3,22 +3,24 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#155b50">
+    <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôle de conciergerie sur place : notes, remarques et photos, enregistrées sur votre appareil.">
     <title>Contrôle des conciergeries</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
     <script src="config.js" defer></script>
-    <script src="app.js" defer></script>
+    <script src="data/conciergeries.js" defer></script>
+    <script src="app.js?v=2" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Aller au contrôle</a>
     <header class="app-header">
       <a class="brand" href="#main" aria-label="Contrôle des conciergeries, aller au formulaire">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" fill="none"><path d="M7 27V9l9-5 9 5v18M3 27h26M12 27v-6h8v6M12 10v2m8-2v2m-8 4v2m8-2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
-        <span><span class="brand-name">Conciergerie</span><span class="brand-description">Contrôle sur place</span></span>
+        <img class="brand-logo" src="logo-horizontal.png" alt="E. Blanco SA" width="2107" height="302">
       </a>
+      <div class="header-control">
+        <p id="selectedBuildingName" class="selected-building-name">Choisir un immeuble</p>
+        <div class="progress-block"><div class="progress-label"><strong>Progression</strong><span id="progressText" aria-live="polite">0 / 30 lignes notées</span></div><progress id="progressBar" value="0" max="30" aria-label="Nombre de lignes notées">0 / 30</progress></div>
+      </div>
       <div class="header-statuses" aria-label="État de l’application">
         <span id="connectionStatus" class="status-pill" role="status">Vérification…</span>
         <span id="storageStatus" class="status-pill save-status" role="status">Chargement…</span>
@@ -45,24 +47,17 @@
       <main id="main" class="main-content" tabindex="-1">
         <div class="page-heading">
           <div><p class="eyebrow">Modèle de contrôle des conciergeries</p><h1>Contrôle de l’immeuble</h1><p class="page-description">Notez chaque élément, ajoutez vos remarques et documentez avec des photos.</p></div>
-          <button id="printControl" type="button" class="button button-primary print-button">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M7 8V3h10v5M7 16H4V9h16v7h-3M7 13h10v8H7zM17 11h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Générer le PDF
-          </button>
         </div>
 
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">
-          <div class="panel-heading"><h2 id="controlHeaderTitle">Informations du contrôle</h2><span class="panel-caption">Modifiables à tout moment</span></div>
+          <div class="panel-heading"><h2 id="controlHeaderTitle">Informations du contrôle</h2></div>
           <div class="header-fields">
-            <label class="form-field address-field" for="address"><span>Adresse de l’immeuble</span><input id="address" type="text" autocomplete="street-address" value="rue de la Prulay 60-62 – 1217 Meyrin" placeholder="Adresse de l’immeuble"></label>
-            <label class="form-field" for="concierge"><span>Concierge</span><input id="concierge" type="text" autocomplete="name" placeholder="Nom du concierge"></label>
+            <label class="form-field building-field" for="buildingSelect"><span>Immeuble <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse et le concierge sont remplis automatiquement.</span></label>
+            <label class="form-field address-field" for="address"><span>Adresse de l’immeuble</span><input id="address" type="text" autocomplete="street-address" readonly placeholder="Adresse de l’immeuble"></label>
+            <label class="form-field" for="concierge"><span>Concierge</span><input id="concierge" type="text" autocomplete="name" readonly placeholder="Non renseigné"></label>
             <label class="form-field" for="controlDate"><span>Date du contrôle</span><input id="controlDate" type="date"></label>
           </div>
           <div class="control-actions" aria-label="Actions sur le contrôle actuel">
-            <button id="saveControl" type="button" class="button button-secondary">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v6h9V3M7 21v-8h10v8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Enregistrer
-            </button>
             <button id="exportControl" type="button" class="button button-quiet">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 16V3m-4 4 4-4 4 4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Exporter
@@ -78,8 +73,9 @@
           </div>
         </section>
 
-        <section class="inspection-guide" aria-label="Notation et progression du contrôle">
-          <div class="progress-block"><div class="progress-label"><strong>Progression du contrôle</strong><span id="progressText" aria-live="polite">0 / 30 lignes notées</span></div><progress id="progressBar" value="0" max="30" aria-label="Nombre de lignes notées">0 / 30</progress></div>
+        <fieldset id="inspectionFields" class="inspection-fields" disabled>
+        <legend class="visually-hidden">Lignes du contrôle, remarques, photos et résumé</legend>
+        <section class="inspection-guide" aria-label="Échelle de notation et consignes pour les photos">
           <div class="rating-legend" aria-label="Échelle de notation"><span class="legend-item"><b class="legend-score score-1">1</b> Très bon</span><span class="legend-item"><b class="legend-score score-2">2</b> Bon</span><span class="legend-item"><b class="legend-score score-3">3</b> Moyen</span><span class="legend-item"><b class="legend-score score-4">4</b> Mauvais</span></div>
           <p class="photo-guidance"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M9 4h6l2 3h4v14H3V7h4l2-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="1.7"/></svg>Joignez une photo pour la note 4, ainsi que pour tous les dégâts et actes de vandalisme.</p>
         </section>
@@ -91,9 +87,21 @@
           <p class="summary-description">Les éléments notés 3 ou 4 apparaissent ici avec leurs remarques et leurs photos.</p>
           <div id="summaryContent"><p class="summary-empty">Aucun point à suivre pour le moment.</p></div>
         </section>
+        </fieldset>
         <p class="page-footer">Sauvegarde automatique sur cet appareil · Pensez à exporter vos données</p>
       </main>
     </div>
+
+    <nav class="bottom-actions" aria-label="Enregistrer et imprimer le contrôle">
+      <button id="saveControl" type="button" class="button button-secondary">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v6h9V3M7 21v-8h10v8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Enregistrer
+      </button>
+      <button id="printControl" type="button" class="button button-primary">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M7 8V3h10v5M7 16H4V9h16v7h-3M7 13h10v8H7zM17 11h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Générer le PDF
+      </button>
+    </nav>
 
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     <dialog id="photoDialog" class="photo-dialog" aria-labelledby="photoCaption">
