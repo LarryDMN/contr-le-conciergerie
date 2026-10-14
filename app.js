@@ -42,6 +42,8 @@
   let saveError = false;
   let actionBusy = false;
   let pdfBusy = false;
+  let mutationBusy = false;
+  let usageDirty = true;
   let directoryHandle;
   let previewURL;
   let noticeTimer;
@@ -54,6 +56,10 @@
   const ratedCount = record => itemsFor(record.type).filter(item => record.rows[item.id]?.rating).length;
   const sortedControls = (type = null) => [...controls.values()].filter(record => !type || record.type === type).sort((a, b) =>
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
+
+  const lists = window.CONTROL_LISTS.create({ controls, archives, typeLabels, buildingName, displayDate,
+    ratedCount, escapeHTML, itemCount: record => itemsFor(record.type).length,
+    versionOf: record => versions.get(record.id) || record.updatedAt });
 
   function notify(message, error = false, persistent = false) {
     clearTimeout(noticeTimer);
@@ -161,7 +167,7 @@
   // Sérialiser les écritures et associer une version au cliché évite de perdre une frappe récente.
   function persistChanges() {
     clearTimeout(saveTimer);
-    if (!dirty.size) return saveQueue;
+    if (!dirty.size || mutationBusy) return saveQueue;
     const snapshots = [...dirty].filter(id => controls.has(id)).map(id => ({
       record: structuredClone(controls.get(id)), version: versions.get(id)
     }));
@@ -203,16 +209,7 @@
   }
 
   function renderList() {
-    $('#controlList').innerHTML = sortedControls(activeType).map(record => `
-      <div class="saved-control ${record.id === currentId ? 'active' : ''}">
-        <button type="button" class="open-control" data-open-control="${escapeHTML(record.id)}"
-          ${record.id === currentId ? 'aria-current="true"' : ''}>
-          <span class="control-date">${escapeHTML(displayDate(record.date))}</span>
-          <span class="control-address">${escapeHTML(buildingName(record))}</span>
-          <span class="control-meta">${escapeHTML(record.concierge || 'Concierge non renseigné')}
-            <span>${ratedCount(record)} / ${itemsFor(record.type).length}</span></span>
-        </button>
-      </div>`).join('') || '<p class="list-empty">Aucun contrôle enregistré dans cette section.</p>';
+    lists.renderControls(activeType, currentId);
     renderHome();
   }
 
@@ -330,6 +327,7 @@
     $('#address').value = record.address;
     $('#concierge').value = record.concierge;
     $('#controlDate').value = record.date;
+    renderPhotosRemovedNotice(record);
     renderSections();
     refreshDerived();
     setStorageStatus();
@@ -388,6 +386,7 @@
     if (currentId) await flushChanges();
     const record = makeControl();
     controls.set(record.id, record);
+    usageDirty = true;
     currentId = record.id;
     markChanged(record);
     renderEditor();
@@ -410,6 +409,7 @@
     record.date = today();
     record.createdAt = new Date().toISOString();
     controls.set(record.id, record);
+    usageDirty = true;
     currentId = record.id;
     markChanged(record);
     renderEditor();
@@ -418,18 +418,193 @@
   }
 
   async function deleteControl() {
-    const record = current();
-    if (!window.confirm(`Supprimer définitivement le contrôle du ${displayDate(record.date)} ? Son PDF reste dans Dossiers. Exportez le JSON pour conserver ses données modifiables.`)) return;
-    await flushChanges();
-    await transaction('readwrite', store => store.delete(record.id));
-    controls.delete(record.id);
-    dirty.delete(record.id);
-    versions.delete(record.id);
-    currentId = sortedControls(activeType)[0]?.id;
-    if (currentId) renderEditor();
-    else if (items.length) await newControl();
-    else renderPendingModel();
-    notify('Contrôle supprimé.');
+    if (current()) await deleteControls([currentId]);
+  }
+
+  // Une opération de gestion reste possible lorsque le quota empêche l'autosauvegarde.
+  async function prepareManagement() {
+    await Promise.all([...photoJobs]);
+    await saveQueue.catch(() => {});
+    try { await flushChanges(); } catch { /* Les données en mémoire restent exportables. */ }
+  }
+
+  function countPhotos(record) {
+    return Object.values(record.rows || {}).reduce((total, row) => total + (row.photos?.length || 0),
+      record.comments?.photos?.length || 0);
+  }
+
+  function renderPhotosRemovedNotice(record = current()) {
+    const notice = $('#photosRemovedNotice');
+    notice.hidden = !record?.photosRemovedAt;
+    if (record?.photosRemovedAt) {
+      const removed = new Intl.DateTimeFormat('fr-CH', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(record.photosRemovedAt));
+      notice.textContent = `Photos retirées le ${removed}. Les notes, remarques et le PDF ont été conservés.`;
+    }
+  }
+
+  // Le dialogue est partagé : exporter ne confirme jamais la suppression.
+  function confirmManagement({ title, description, exportFirst, deleteLabel = 'Confirmer la suppression' }) {
+    const dialog = $('#massConfirmDialog');
+    const exportButton = $('#massConfirmExport');
+    const deleteButton = $('#massConfirmDelete');
+    const cancelButton = $('#massConfirmCancel');
+    const exportStatus = $('#massConfirmExportStatus');
+    $('#massConfirmTitle').textContent = title;
+    $('#massConfirmDescription').textContent = description;
+    deleteButton.textContent = deleteLabel;
+    exportStatus.hidden = true;
+    exportStatus.textContent = '';
+    dialog.returnValue = '';
+    let exporting = false;
+    const toggleButtons = disabled => {
+      exportButton.disabled = disabled;
+      deleteButton.disabled = disabled;
+      cancelButton.disabled = disabled;
+    };
+    toggleButtons(false);
+    return new Promise(resolve => {
+      const cancel = () => dialog.close('cancel');
+      const remove = () => dialog.close('delete');
+      const escaped = event => { event.preventDefault(); if (!exporting) cancel(); };
+      const exported = async () => {
+        if (exporting) return;
+        exporting = true;
+        toggleButtons(true);
+        exportStatus.hidden = false;
+        exportStatus.textContent = 'Préparation de la sauvegarde JSON…';
+        try {
+          await exportFirst();
+          exportStatus.textContent = 'Sauvegarde JSON téléchargée. Vérifiez le fichier avant de confirmer la suppression.';
+        } catch (error) {
+          exportStatus.textContent = `Export impossible : ${error.message || 'réessayez'}. Aucune donnée n’a été supprimée.`;
+        } finally {
+          exporting = false;
+          toggleButtons(false);
+        }
+      };
+      const closed = () => {
+        exportButton.removeEventListener('click', exported);
+        deleteButton.removeEventListener('click', remove);
+        cancelButton.removeEventListener('click', cancel);
+        dialog.removeEventListener('cancel', escaped);
+        dialog.removeEventListener('close', closed);
+        resolve(dialog.returnValue === 'delete');
+      };
+      exportButton.addEventListener('click', exported);
+      deleteButton.addEventListener('click', remove);
+      cancelButton.addEventListener('click', cancel);
+      dialog.addEventListener('cancel', escaped);
+      dialog.addEventListener('close', closed);
+      dialog.showModal();
+      cancelButton.focus();
+    });
+  }
+
+  // Bloquer les écritures différées pendant la transaction évite de ressusciter une fiche supprimée.
+  async function managedMutation(action) {
+    clearTimeout(saveTimer);
+    const editor = $('#controlForm');
+    const wasInert = editor.inert;
+    // Une frappe pendant la transaction ne doit pas modifier un ancien cliché.
+    editor.inert = true;
+    mutationBusy = true;
+    pendingWrites += 1;
+    setStorageStatus();
+    try {
+      // Vider aussi les clichés déjà en file avant de retirer les données.
+      await saveQueue.catch(() => {});
+      await action();
+      if (!dirty.size) saveError = false;
+    }
+    finally {
+      editor.inert = wasInert;
+      mutationBusy = false;
+      pendingWrites -= 1;
+      setStorageStatus();
+      if (dirty.size) saveTimer = setTimeout(() => { persistChanges().catch(() => {}); }, 250);
+    }
+  }
+
+  function refreshManagementViews() {
+    lists.prune();
+    renderList();
+    if (view === 'folders') renderFolders();
+    if (view === 'control') {
+      if (current()) renderEditor();
+      else if (!items.length) renderPendingModel();
+      else {
+        $('#controlForm').hidden = true;
+        $('#officePlaceholder').hidden = true;
+        $('#headerControl').hidden = true;
+        $('#controlActions').hidden = true;
+        $('#newControl').disabled = false;
+        $('#workflowTitle').textContent = typeLabels[activeType];
+        $('#workflowDescription').textContent = 'Aucun contrôle enregistré. Cliquez sur « Nouveau contrôle » pour commencer.';
+      }
+    }
+    renderHome();
+  }
+
+  async function deleteControls(ids) {
+    await prepareManagement();
+    const selected = [...new Set(ids)].filter(id => controls.has(id));
+    if (!selected.length) return;
+    const count = selected.length;
+    const pdfCount = selected.filter(id => archives.has(id)).length;
+    const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
+    if (!await confirmManagement({ title: `Supprimer ${count} contrôle${count > 1 ? 's' : ''} ?`,
+      description: `Cette action supprime définitivement ${count} contrôle${count > 1 ? 's' : ''}, leurs ${photoCount} photo${photoCount > 1 ? 's' : ''} et leurs ${pdfCount} PDF correspondants dans Dossiers. Les copies déjà téléchargées ou copiées sur ordinateur sont conservées.`,
+      exportFirst: () => exportControls(selected, selected) })) return;
+    await managedMutation(async () => {
+      await transaction('readwrite', stores => {
+        selected.forEach(id => { stores.controls.delete(id); stores.archives.delete(id); });
+      }, ['controls', 'archives']);
+      selected.forEach(id => { controls.delete(id); archives.delete(id); dirty.delete(id); versions.delete(id); });
+      if (selected.includes(currentId)) currentId = sortedControls(activeType)[0]?.id;
+      usageDirty = true;
+    });
+    refreshManagementViews();
+    notify(`${count} contrôle${count > 1 ? 's' : ''} supprimé${count > 1 ? 's' : ''}, avec leurs photos et PDF.`);
+  }
+
+  async function removeControlsPhotos(ids, reason = '') {
+    await prepareManagement();
+    const selected = [...new Set(ids)].filter(id => controls.has(id) && countPhotos(controls.get(id)) > 0);
+    if (!selected.length) { notify('Aucun contrôle concerné ne contient de photo.'); return; }
+    const count = selected.length;
+    const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
+    if (!await confirmManagement({ title: `Supprimer les photos de ${count} contrôle${count > 1 ? 's' : ''} ?`,
+      description: `Retirer définitivement ${photoCount} photo${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}${reason}. Les contrôles, notes, remarques et PDF restent intacts. Les photos intégrées aux PDF archivés restent dans ces PDF.`,
+      exportFirst: () => exportControls(selected, selected), deleteLabel: 'Supprimer les photos' })) return;
+    const timestamp = new Date().toISOString();
+    const snapshots = selected.map(id => {
+      // Construire le cliché sans recopier les grandes chaînes base64 qui vont être retirées.
+      const original = controls.get(id);
+      const record = { ...original,
+        rows: Object.fromEntries(Object.entries(original.rows).map(([key, row]) => [key, { ...row, photos: [] }])),
+        comments: { ...original.comments, photos: [] } };
+      record.photosRemovedAt = timestamp;
+      record.updatedAt = timestamp;
+      return record;
+    });
+    await managedMutation(async () => {
+      await transaction('readwrite', store => snapshots.forEach(record => store.put(record)));
+      snapshots.forEach(record => {
+        controls.set(record.id, record);
+        versions.set(record.id, (versions.get(record.id) || 0) + 1);
+        dirty.delete(record.id);
+      });
+      usageDirty = true;
+    });
+    refreshManagementViews();
+    notify(`${photoCount} photo${photoCount > 1 ? 's' : ''} retirée${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}. Les PDF sont conservés.`);
+  }
+
+  async function removeOlderPhotos() {
+    const date = $('#photosBeforeDate').value;
+    if (!validDate(date)) { $('#photosBeforeDate').reportValidity(); return; }
+    const ids = [...controls.values()].filter(record => record.date < date).map(record => record.id);
+    await removeControlsPhotos(ids, ` datés avant le ${displayDate(date)}, dans les deux activités`);
   }
 
   // La galerie accepte plusieurs images ; la capture privilégie l'appareil arrière.
@@ -484,6 +659,7 @@
         const record = controls.get(recordId);
         if (!record) return;
         photoTarget(record, rowId).photos.push(photo);
+        usageDirty = true;
         markChanged(record);
         added += 1;
         if (recordId === currentId) { renderPhotos(rowId); refreshDerived(); }
@@ -504,11 +680,18 @@
     $('#photoDialog').showModal();
   }
 
-  function removePhoto(rowId, id) {
-    if (!window.confirm('Supprimer cette photo du contrôle ?')) return;
-    const target = photoTarget(current(), rowId);
+  async function removePhoto(rowId, id) {
+    const recordId = currentId;
+    await prepareManagement();
+    const record = controls.get(recordId);
+    if (!record || !photoTarget(record, rowId).photos.some(photo => photo.id === id)) return;
+    if (!await confirmManagement({ title: 'Supprimer cette photo ?',
+      description: 'Cette action retire 1 photo de 1 contrôle. Les autres photos, notes, remarques et le PDF archivé sont conservés.',
+      exportFirst: () => exportControls([recordId], [recordId]), deleteLabel: 'Supprimer la photo' })) return;
+    const target = photoTarget(record, rowId);
     target.photos = target.photos.filter(photo => photo.id !== id);
-    markChanged();
+    usageDirty = true;
+    markChanged(record);
     renderPhotos(rowId);
     refreshDerived();
   }
@@ -525,15 +708,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
-  async function exportControls() {
+  async function exportControls(controlIds = null, archiveIds = null) {
     await Promise.all([...photoJobs]);
     // L'export reste utilisable en cas de quota dépassé afin de sauver les données en mémoire.
     try { await flushChanges(); } catch { /* L'indicateur continue de signaler l'échec local. */ }
-    const pdfArchives = await Promise.all([...archives.values()].map(async ({ blob, ...metadata }) => ({
+    const selectedControls = controlIds === null ? sortedControls()
+      : [...new Set(controlIds)].map(id => controls.get(id)).filter(Boolean);
+    const selectedArchives = archiveIds === null ? [...archives.values()]
+      : [...new Set(archiveIds)].map(id => archives.get(id)).filter(Boolean);
+    const pdfArchives = await Promise.all(selectedArchives.map(async ({ blob, ...metadata }) => ({
       ...metadata, pdfDataUrl: await blobToDataURL(blob)
     })));
-    downloadJSON(sortedControls().map(record => structuredClone(record)), pdfArchives);
-    notify(`${controls.size} contrôle(s) et ${archives.size} PDF exportés, photos incluses.`);
+    downloadJSON(selectedControls.map(record => structuredClone(record)), pdfArchives);
+    notify(`${selectedControls.length} contrôle(s) et ${selectedArchives.length} PDF exportés, photos incluses.`);
   }
 
   function blobToDataURL(blob) {
@@ -574,6 +761,7 @@
         Array.isArray(record.rows) || !record.comments) invalid();
       if (!['conciergerie', 'bureaux'].includes(record.type ?? 'conciergerie')) invalid();
       if (record.completedAt != null && (typeof record.completedAt !== 'string' || Number.isNaN(Date.parse(record.completedAt)))) invalid();
+      if (record.photosRemovedAt != null && (typeof record.photosRemovedAt !== 'string' || Number.isNaN(Date.parse(record.photosRemovedAt)))) invalid();
       // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
       if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
       if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
@@ -589,8 +777,10 @@
         buildingName: record.buildingName ?? '',
         concierge: string(record.concierge), createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
         ...(record.completedAt ? { completedAt: record.completedAt } : {}),
+        ...(record.photosRemovedAt ? { photosRemovedAt: record.photosRemovedAt } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
+    const owners = new Map(records.map(record => [record.id, record]));
     const archiveIds = new Set();
     const pdfArchives = (payload.version === 2 ? payload.archives : []).map(archive => {
       if (!archive || typeof archive.controlId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(archive.controlId) ||
@@ -599,7 +789,7 @@
         typeof archive.generatedAt !== 'string' || Number.isNaN(Date.parse(archive.generatedAt)) ||
         (archive.buildingId != null && typeof archive.buildingId !== 'string') ||
         typeof archive.pdfDataUrl !== 'string' || !/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/.test(archive.pdfDataUrl)) invalid();
-      const owner = records.find(record => record.id === archive.controlId);
+      const owner = owners.get(archive.controlId);
       if (owner && owner.type !== archive.type) invalid();
       archiveIds.add(archive.controlId);
       let binary;
@@ -637,6 +827,7 @@
     }, ['controls', 'archives']);
     records.forEach(record => controls.set(record.id, record));
     pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
+    usageDirty = true;
     if (records.length) {
       currentId = records[0].id;
       setType(records[0].type);
@@ -694,9 +885,35 @@
 
   function renderHome() {
     const countLabel = count => `${count} contrôle${count > 1 ? 's' : ''}`;
-    $('#homeConciergeCount').textContent = countLabel(sortedControls('conciergerie').length);
-    $('#homeOfficeCount').textContent = countLabel(sortedControls('bureaux').length);
+    let conciergeCount = 0;
+    let officeCount = 0;
+    controls.forEach(record => { if (record.type === 'bureaux') officeCount += 1; else conciergeCount += 1; });
+    $('#homeConciergeCount').textContent = countLabel(conciergeCount);
+    $('#homeOfficeCount').textContent = countLabel(officeCount);
     $('#homeArchiveCount').textContent = `${archives.size} PDF`;
+    renderStorageUsage();
+  }
+
+  // Taille décodée des photos et taille réelle des blobs PDF ; pas d'estimation du navigateur.
+  function renderStorageUsage() {
+    if (!usageDirty) return;
+    let photoBytes = 0;
+    controls.forEach(record => {
+      const groups = [...Object.values(record.rows || {}), record.comments];
+      groups.forEach(group => (group?.photos || []).forEach(photo => {
+        const data = photo.dataUrl || '';
+        const start = data.indexOf(',') + 1;
+        const length = data.length - start;
+        const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+        if (start > 0 && length > 0) photoBytes += Math.floor(length * 3 / 4) - padding;
+      }));
+    });
+    const pdfBytes = [...archives.values()].reduce((total, archive) => total + archive.blob.size, 0);
+    const format = bytes => `${new Intl.NumberFormat('fr-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bytes / 1000000)} Mo`;
+    $('#storageUsagePhotos').textContent = format(photoBytes);
+    $('#storageUsagePDFs').textContent = format(pdfBytes);
+    $('#storageUsageTotal').textContent = format(photoBytes + pdfBytes);
+    usageDirty = false;
   }
 
   function showView(nextView) {
@@ -747,35 +964,8 @@
     await updateDirectoryStatus();
   }
 
-  const searchable = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   function renderFolders() {
-    const query = searchable($('#folderSearch').value.trim());
-    const filtered = [...archives.values()].filter(archive => searchable([
-      archive.filename, archive.buildingName, archive.address, archive.date,
-      displayDate(archive.date), typeLabels[archive.type]
-    ].join(' ')).includes(query)).sort((a, b) => b.date.localeCompare(a.date) || b.generatedAt.localeCompare(a.generatedAt));
-    $('#foldersEmpty').hidden = filtered.length > 0;
-    $('#foldersEmpty').textContent = archives.size ? 'Aucun PDF ne correspond à cette recherche.' : 'Aucun PDF archivé. Enregistrez ou terminez un contrôle pour créer son PDF.';
-    $('#archiveTree').innerHTML = Object.keys(typeLabels).map(type => {
-      const entries = filtered.filter(archive => archive.type === type);
-      if (!entries.length) return '';
-      const byBuilding = new Map();
-      entries.forEach(archive => {
-        const key = archive.buildingId || `${archive.buildingName}\u0000${archive.address}`;
-        if (!byBuilding.has(key)) byBuilding.set(key, []);
-        byBuilding.get(key).push(archive);
-      });
-      return `<details class="folder-type" open><summary><span class="folder-label">${escapeHTML(typeLabels[type])}</span><span class="folder-count">${entries.length} PDF</span></summary>
-        ${[...byBuilding.values()].map(buildingArchives => `<details class="folder-building" open><summary><span class="folder-label">${escapeHTML(buildingArchives[0].buildingName || buildingArchives[0].address || 'Sans immeuble')}</span><span class="folder-count">${buildingArchives.length}</span></summary>
-          ${[...new Set(buildingArchives.map(archive => archive.date.slice(0, 4)))].sort().reverse().map(year => `<details class="folder-year" open><summary><span class="folder-label">${year}</span></summary>
-            ${buildingArchives.filter(archive => archive.date.startsWith(year)).map(archive => `<article class="archive-card"><div>
-              <h3 class="archive-filename">${escapeHTML(archive.filename)}</h3><p class="archive-meta">Contrôle du ${escapeHTML(displayDate(archive.date))}</p>
-              <p class="archive-meta">PDF actualisé le ${escapeHTML(new Intl.DateTimeFormat('fr-CH', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(archive.generatedAt)))}</p></div>
-              <div class="archive-actions"><button type="button" class="button button-secondary" data-preview-archive="${escapeHTML(archive.controlId)}">Aperçu</button>
-                <button type="button" class="button button-primary" data-download-archive="${escapeHTML(archive.controlId)}">Télécharger</button>
-                <button type="button" class="button button-secondary" data-delete-archive="${escapeHTML(archive.controlId)}">Supprimer</button></div></article>`).join('')}</details>`).join('')}
-        </details>`).join('')}</details>`;
-    }).join('');
+    lists.renderArchives();
     renderHome();
   }
 
@@ -795,6 +985,7 @@
     if (!archive) return;
     if (previewURL) URL.revokeObjectURL(previewURL);
     previewURL = URL.createObjectURL(archive.blob);
+    $('#archiveDialog').dataset.controlId = id;
     $('#archiveCaption').textContent = `${archive.filename} — ${displayDate(archive.date)}`;
     $('#archivePreview').src = previewURL;
     $('#archivePreviewDownload').href = previewURL;
@@ -803,11 +994,26 @@
   }
 
   async function deleteArchive(id) {
-    if (!archives.has(id) || !window.confirm('Supprimer ce PDF de Dossiers ? Le contrôle, ses photos et les copies déjà téléchargées restent conservés.')) return;
-    await transaction('readwrite', store => store.delete(id), 'archives');
-    archives.delete(id);
-    renderFolders();
-    notify('PDF supprimé de Dossiers.');
+    await deleteArchives([id]);
+  }
+
+  async function deleteArchives(ids) {
+    await prepareManagement();
+    const selected = [...new Set(ids)].filter(id => archives.has(id));
+    if (!selected.length) return;
+    const count = selected.length;
+    const ownerCount = selected.filter(id => controls.has(id)).length;
+    if (!await confirmManagement({ title: `Supprimer ${count} PDF de Dossiers ?`,
+      description: `Cette action supprime définitivement ${count} PDF dans Dossiers. Les ${ownerCount} contrôle${ownerCount > 1 ? 's' : ''} correspondant${ownerCount > 1 ? 's' : ''}, leurs photos et les copies déjà téléchargées ou copiées sur ordinateur restent conservés.`,
+      exportFirst: () => exportControls(selected.filter(id => controls.has(id)), selected) })) return;
+    await managedMutation(async () => {
+      await transaction('readwrite', store => selected.forEach(id => store.delete(id)), 'archives');
+      selected.forEach(id => archives.delete(id));
+      usageDirty = true;
+    });
+    if (selected.includes($('#archiveDialog').dataset.controlId) && $('#archiveDialog').open) $('#archiveDialog').close();
+    refreshManagementViews();
+    notify(`${count} PDF supprimé${count > 1 ? 's' : ''} de Dossiers. Les contrôles sont conservés.`);
   }
 
   function supportsDirectory() {
@@ -900,6 +1106,7 @@
       await transaction('readwrite', stores => { stores.controls.put(record); stores.archives.put(archive); }, ['controls', 'archives']);
       controls.set(record.id, record);
       archives.set(record.id, archive);
+      usageDirty = true;
       versions.set(record.id, (versions.get(record.id) || 0) + 1);
       dirty.delete(record.id);
       saveError = false;
@@ -930,7 +1137,15 @@
     $('#openFolders').addEventListener('click', () => perform(openFolders));
     $('#homeExport').addEventListener('click', () => perform(exportControls));
     $('#homeImport').addEventListener('click', () => $('#importFile').click());
-    $('#folderSearch').addEventListener('input', renderFolders);
+    lists.bind();
+    $('#exportSelectedControls').addEventListener('click', () => perform(() => {
+      const ids = lists.selectedControls(activeType);
+      return exportControls(ids, ids);
+    }));
+    $('#deleteSelectedControls').addEventListener('click', () => perform(() => deleteControls(lists.selectedControls(activeType))));
+    $('#removeSelectedPhotos').addEventListener('click', () => perform(() => removeControlsPhotos(lists.selectedControls(activeType))));
+    $('#deleteSelectedArchives').addEventListener('click', () => perform(() => deleteArchives(lists.selectedArchives())));
+    $('#removeOlderPhotos').addEventListener('click', () => perform(removeOlderPhotos));
     $('#chooseDirectory').addEventListener('click', () => perform(chooseDirectory));
     $('#authorizeDirectory').addEventListener('click', () => perform(async () => {
       if (await directoryPermission(true)) notify('Accès au dossier autorisé.');
@@ -1014,7 +1229,7 @@
       const view = event.target.closest('[data-view-photo]');
       if (view) { viewPhoto(view.dataset.photoRow, view.dataset.viewPhoto); return; }
       const remove = event.target.closest('[data-remove-photo]');
-      if (remove) removePhoto(remove.dataset.photoRow, remove.dataset.removePhoto);
+      if (remove) perform(() => removePhoto(remove.dataset.photoRow, remove.dataset.removePhoto));
     });
     $('#closePhoto').addEventListener('click', () => $('#photoDialog').close());
     $('#photoDialog').addEventListener('click', event => { if (event.target === $('#photoDialog')) $('#photoDialog').close(); });
