@@ -3,10 +3,10 @@
  * Incrémenter la version du cache lors d'une publication de nouveaux fichiers.
  */
 const CACHE_PREFIX = "controles-conciergerie-";
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const INDEX_URL = new URL("index.html", self.registration.scope).href;
-const ASSET_URLS = ["index.html", "style.css?v=3", "app.js?v=3", "config.js", "data/conciergeries.js", "data/bureaux.js",
-  "logo-horizontal.png", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js"]
+const ASSET_URLS = ["index.html", "style.css?v=4", "app.js?v=4", "config.js", "data/conciergeries.js", "data/bureaux.js",
+  "logo-horizontal.png", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js", "lists.js?v=4"]
   .map((path) => new URL(path, self.registration.scope).href);
 
 self.addEventListener("install", (event) => {

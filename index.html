@@ -6,14 +6,15 @@
     <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
     <title>Contrôles et dossiers — E. Blanco SA</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
     <script src="config.js" defer></script>
     <script src="data/conciergeries.js" defer></script>
     <script src="data/bureaux.js" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
     <script src="pdf.js" defer></script>
-    <script src="app.js?v=3" defer></script>
+    <script src="lists.js?v=4" defer></script>
+    <script src="app.js?v=4" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -61,6 +62,20 @@
         <p>Les contrôles, photos et PDF restent sur cet appareil. Exportez une copie pour les conserver ou les transférer.</p>
         <div class="home-backup-actions"><button id="homeExport" type="button" class="button button-secondary">Exporter toutes les données</button><button id="homeImport" type="button" class="button button-secondary">Importer une sauvegarde</button></div>
       </section>
+      <section class="home-storage panel" aria-labelledby="homeStorageTitle">
+        <div class="panel-heading"><h2 id="homeStorageTitle">Espace utilisé sur cet appareil</h2></div>
+        <div id="storageUsageInfo" class="storage-usage" aria-live="polite">
+          <div class="storage-total"><span>Photos et PDF</span><strong id="storageUsageTotal">0 Mo</strong></div>
+          <div><span>Photos</span><strong id="storageUsagePhotos">0 Mo</strong></div>
+          <div><span>PDF</span><strong id="storageUsagePDFs">0 Mo</strong></div>
+        </div>
+        <p class="field-help">Taille des photos et des PDF enregistrés, hors textes et stockage du navigateur.</p>
+        <div class="photos-cleanup" aria-labelledby="photosCleanupTitle">
+          <h3 id="photosCleanupTitle">Libérer de la place</h3>
+          <p>Retirez les photos des contrôles antérieurs à une date, dans les deux activités. Les notes, remarques et PDF sont conservés.</p>
+          <div class="photos-cleanup-actions"><label class="form-field" for="photosBeforeDate"><span>Contrôles datés avant le</span><input id="photosBeforeDate" type="date" required></label><button id="removeOlderPhotos" type="button" class="button button-secondary">Supprimer les photos avant cette date</button></div>
+        </div>
+      </section>
     </main>
 
     <div id="controlView" class="app-layout" hidden>
@@ -69,7 +84,19 @@
         <button id="newControl" type="button" class="button button-primary button-full">
           <span aria-hidden="true" class="button-symbol">+</span> Nouveau contrôle
         </button>
+        <div id="controlFilters" class="control-filters" aria-label="Filtrer les contrôles">
+          <label class="form-field filter-wide" for="controlBuildingFilter"><span>Immeuble</span><select id="controlBuildingFilter"><option value="">Tous les immeubles</option></select></label>
+          <label class="form-field" for="controlYearFilter"><span>Année</span><select id="controlYearFilter"><option value="">Toutes les années</option></select></label>
+          <label class="form-field" for="controlMonthFilter"><span>Mois</span><select id="controlMonthFilter"><option value="">Tous les mois</option></select></label>
+          <label class="form-field filter-wide" for="controlSearch"><span>Rechercher un contrôle</span><input id="controlSearch" type="search" placeholder="Immeuble, adresse, remarque…" autocomplete="off"></label>
+        </div>
+        <div class="list-selection-tools"><label class="selection-toggle" for="controlSelectAll"><input id="controlSelectAll" type="checkbox"><span>Tout sélectionner sur cette page</span></label><p id="controlListCount" class="control-list-count" role="status">0 contrôle</p></div>
+        <div id="controlSelectionBar" class="selection-bar" aria-label="Actions sur les contrôles sélectionnés" hidden>
+          <p id="controlSelectionCount" class="selection-count" role="status">0 contrôle sélectionné</p>
+          <div class="selection-actions"><button id="exportSelectedControls" type="button" class="button button-primary">Exporter la sélection (JSON)</button><button id="deleteSelectedControls" type="button" class="button button-secondary">Supprimer la sélection</button><button id="removeSelectedPhotos" type="button" class="button button-secondary">Supprimer les photos de la sélection</button><button id="clearControlSelection" type="button" class="button button-quiet">Tout désélectionner</button></div>
+        </div>
         <div id="controlList" class="control-list" aria-label="Liste des contrôles"><p class="list-empty">Chargement des contrôles…</p></div>
+        <nav class="list-pagination" aria-label="Pages des contrôles"><p id="controlPageInfo" class="page-info" role="status">Page 1 sur 1</p><div class="pagination-buttons"><button id="controlPreviousPage" type="button" class="button button-secondary" disabled>Précédent</button><button id="controlNextPage" type="button" class="button button-secondary" disabled>Suivant</button></div></nav>
         <div class="sidebar-bottom">
           <button id="importControl" type="button" class="button button-secondary button-full">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -96,6 +123,7 @@
             <label class="form-field" for="concierge"><span id="responsibleLabel">Concierge</span><input id="concierge" type="text" autocomplete="name" readonly placeholder="Non renseigné"></label>
             <label class="form-field" for="controlDate"><span>Date du contrôle</span><input id="controlDate" type="date"></label>
           </div>
+          <p id="photosRemovedNotice" class="photos-removed-notice" role="status" hidden>Les photos de ce contrôle ont été retirées. Les notes et le PDF ont été conservés.</p>
           <div class="control-actions" aria-label="Actions sur le contrôle actuel">
             <button id="exportControl" type="button" class="button button-quiet">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 16V3m-4 4 4-4 4 4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -140,8 +168,11 @@
         <div class="directory-actions"><button id="chooseDirectory" type="button" class="button button-secondary" hidden>Choisir le dossier de sauvegarde</button><button id="authorizeDirectory" type="button" class="button button-secondary" hidden>Réautoriser le dossier</button></div>
         <p id="directoryStatus" class="directory-status" role="status"></p>
       </section>
+      <div class="list-selection-tools archive-selection-tools"><label class="selection-toggle" for="archiveSelectAll"><input id="archiveSelectAll" type="checkbox"><span>Tout sélectionner sur cette page</span></label><p id="archiveListCount" class="control-list-count" role="status">0 PDF</p></div>
+      <div id="archiveSelectionBar" class="selection-bar archive-selection-bar" aria-label="Actions sur les PDF sélectionnés" hidden><p id="archiveSelectionCount" class="selection-count" role="status">0 PDF sélectionné</p><div class="selection-actions"><button id="deleteSelectedArchives" type="button" class="button button-secondary">Supprimer la sélection</button><button id="clearArchiveSelection" type="button" class="button button-quiet">Tout désélectionner</button></div></div>
       <p id="foldersEmpty" class="folders-empty">Aucun PDF enregistré. Ouvrez un contrôle et choisissez « Enregistrer » pour créer son dossier.</p>
       <div id="archiveTree" class="archive-tree" aria-label="PDF par type, immeuble et année"></div>
+      <nav class="list-pagination archive-pagination" aria-label="Pages des dossiers"><p id="archivePageInfo" class="page-info" role="status">Page 1 sur 1</p><div class="pagination-buttons"><button id="archivePreviousPage" type="button" class="button button-secondary" disabled>Précédent</button><button id="archiveNextPage" type="button" class="button button-secondary" disabled>Suivant</button></div></nav>
     </main>
 
     <nav id="controlActions" class="bottom-actions" aria-label="Enregistrer et générer le PDF du contrôle" hidden>
@@ -166,6 +197,13 @@
       <iframe id="archivePreview" title="Aperçu du PDF"></iframe>
       <p class="archive-preview-help">Si votre navigateur n’affiche pas l’aperçu, téléchargez le PDF pour l’ouvrir.</p>
       <a id="archivePreviewDownload" class="button button-primary button-full" download>Télécharger le PDF</a>
+    </dialog>
+    <dialog id="massConfirmDialog" class="mass-confirm-dialog" aria-labelledby="massConfirmTitle" aria-describedby="massConfirmDescription">
+      <h2 id="massConfirmTitle">Confirmer la suppression</h2>
+      <p id="massConfirmDescription"></p>
+      <p class="confirmation-help">Vous pouvez exporter une sauvegarde avant de confirmer.</p>
+      <p id="massConfirmExportStatus" class="confirmation-export-status" role="status" hidden></p>
+      <div class="confirmation-actions"><button id="massConfirmExport" type="button" class="button button-secondary">Exporter d’abord (JSON)</button><button id="massConfirmDelete" type="button" class="button button-primary">Confirmer la suppression</button><button id="massConfirmCancel" type="button" class="button button-quiet" autofocus>Annuler</button></div>
     </dialog>
     <section id="printReport" aria-label="Document imprimable"></section>
     <noscript><div class="noscript-message">Activez JavaScript pour créer et enregistrer vos contrôles sur cet appareil.</div></noscript>
