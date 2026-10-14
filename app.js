@@ -4,15 +4,16 @@
 
   const baseConfig = window.CONCIERGERIE_CONFIG;
   const buildings = window.CONCIERGERIES;
-  const templates = {
-    conciergerie: baseConfig,
-    bureaux: { ...baseConfig, sections: window.BUREAUX || [] }
-  };
+  const offices = window.BUREAUX;
+  // Chaque visite de bureaux conserve son propre modèle, indépendant du catalogue.
+  const templateFor = subject => (typeof subject === 'string' ? subject : subject?.type) === 'bureaux'
+    ? { ...baseConfig, footer: baseConfig.officeFooter, sections: subject?.officeSections || [] }
+    : baseConfig;
   const typeLabels = { conciergerie: 'Contrôle conciergerie', bureaux: 'Contrôle entretien de bureaux' };
-  const itemsFor = type => templates[type].sections.flatMap(section => section.groups.flatMap(group => group.items));
+  const itemsFor = subject => templateFor(subject).sections.flatMap(section => section.groups.flatMap(group => group.items));
   let activeType = 'conciergerie';
   let view = 'home';
-  let config = templates[activeType];
+  let config = templateFor(activeType);
   let items = itemsFor(activeType);
   let itemIds = new Set(items.map(item => item.id));
   const $ = selector => document.querySelector(selector);
@@ -50,15 +51,15 @@
   const photoJobs = new Set();
   const current = () => controls.get(currentId);
   const buildingName = record => record.buildingName || record.address ||
-    (record.buildingId === undefined ? 'Contrôle sans adresse' : 'Immeuble à choisir');
+    (record.type === 'bureaux' ? 'Bureau à choisir' : record.buildingId === undefined ? 'Contrôle sans adresse' : 'Immeuble à choisir');
   // null désigne un nouveau brouillon ; l'absence de champ désigne un ancien contrôle.
-  const needsBuilding = record => record.type === 'bureaux' ? !record.buildingName.trim() : record.buildingId === null;
-  const ratedCount = record => itemsFor(record.type).filter(item => record.rows[item.id]?.rating).length;
+  const needsBuilding = record => record.type === 'bureaux' ? !record.buildingId : record.buildingId === null;
+  const ratedCount = record => itemsFor(record).filter(item => record.rows[item.id]?.rating).length;
   const sortedControls = (type = null) => [...controls.values()].filter(record => !type || record.type === type).sort((a, b) =>
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
 
   const lists = window.CONTROL_LISTS.create({ controls, archives, typeLabels, buildingName, displayDate,
-    ratedCount, escapeHTML, itemCount: record => itemsFor(record.type).length,
+    ratedCount, escapeHTML, itemCount: record => itemsFor(record).length,
     versionOf: record => versions.get(record.id) || record.updatedAt });
 
   function notify(message, error = false, persistent = false) {
@@ -140,7 +141,9 @@
     // Aucun rapprochement automatique : les anciennes adresses restent intactes.
     record.buildingName ??= '';
     record.rows ||= {};
-    itemsFor(record.type).forEach(item => { record.rows[item.id] ||= blankRow(); });
+    itemsFor(record).forEach(item => {
+      if (!Object.hasOwn(record.rows, item.id)) record.rows[item.id] = blankRow();
+    });
     record.comments ||= { text: '', photos: [] };
     return record;
   }
@@ -148,7 +151,8 @@
   function makeControl() {
     const timestamp = new Date().toISOString();
     return normalizeRecord({ id: uid(), type: activeType, createdAt: timestamp, updatedAt: timestamp,
-      ...(activeType === 'conciergerie' ? { buildingId: null } : {}),
+      buildingId: null,
+      ...(activeType === 'bureaux' ? { officeSections: [] } : {}),
       buildingName: '', address: '', concierge: '', date: today(), rows: {},
       comments: { text: '', photos: [] } });
   }
@@ -201,11 +205,15 @@
   async function perform(action) {
     if (actionBusy) return;
     actionBusy = true;
+    const editor = $('#controlForm');
+    const wasInert = editor.inert;
+    // Attendre les photos et les écritures avant d'autoriser un autre choix de site.
+    editor.inert = true;
     try { await action(); }
     catch (error) {
       console.error('Opération impossible :', error.name);
       if (!saveError) notify(error.message || 'Cette opération a échoué.', true);
-    } finally { actionBusy = false; }
+    } finally { editor.inert = wasInert; actionBusy = false; }
   }
 
   function renderList() {
@@ -235,7 +243,8 @@
             ordinal += 1;
             return `<article class="inspection-row" data-row-id="${item.id}">
               <div class="row-main"><div class="row-title"><span class="item-number">${String(ordinal).padStart(2, '0')}</span>
-                <h4 class="item-label" id="label-${item.id}">${escapeHTML(item.label)}</h4></div>
+                <h4 class="item-label" id="label-${item.id}">${escapeHTML(item.label)}</h4>
+                ${item.frequency ? `<span class="item-frequency" title="Fréquence attendue, à titre indicatif">${escapeHTML(item.frequency)}</span>` : ''}</div>
                 <div class="rating-options" role="group" aria-labelledby="label-${item.id}">
                   ${config.ratings.map(rating => `<button type="button" class="rating-button" data-row="${item.id}" data-rating="${rating.value}"
                     aria-pressed="${row.rating === rating.value}" aria-label="${rating.value} : ${escapeHTML(rating.label)}">
@@ -307,67 +316,101 @@
 
   function renderEditor() {
     const record = current();
-    if (!record || !items.length) { renderPendingModel(); return; }
-    $('#officePlaceholder').hidden = true;
+    if (!record) { renderPendingModel(); return; }
+    setType(record.type);
+    const pendingOffice = activeType === 'bureaux' && !items.length;
+    $('#officePlaceholder').hidden = !pendingOffice || needsBuilding(record);
     $('#controlForm').hidden = false;
-    $('#headerControl').hidden = view !== 'control';
-    $('#controlActions').hidden = view !== 'control';
+    $('#headerControl').hidden = view !== 'control' || pendingOffice;
+    $('#controlActions').hidden = view !== 'control' || pendingOffice;
     $('#newControl').disabled = false;
     $('#workflowTitle').textContent = typeLabels[activeType];
     $('#workflowEyebrow').textContent = activeType === 'conciergerie' ? 'Modèle de contrôle des conciergeries' : 'Modèle de contrôle de l’entretien de bureaux';
     $('#workflowDescription').textContent = 'Notez chaque élément, ajoutez vos remarques et documentez avec des photos.';
-    $('#buildingSelectField').hidden = activeType !== 'conciergerie';
-    $('#buildingNameField').hidden = activeType !== 'bureaux';
-    $('#buildingNameInput').value = record.buildingName;
-    $('#buildingNameInput').required = activeType === 'bureaux';
-    $('#address').readOnly = activeType === 'conciergerie';
-    $('#concierge').readOnly = activeType === 'conciergerie';
-    $('#responsibleLabel').textContent = activeType === 'conciergerie' ? 'Concierge' : 'Responsable';
+    $('#buildingSelectField').hidden = false;
+    $('#buildingSelectLabel').textContent = activeType === 'bureaux' ? 'Bureau' : 'Immeuble';
+    $('#addressLabel').textContent = activeType === 'bureaux' ? 'Adresse du bureau' : 'Adresse de l’immeuble';
+    $('#address').placeholder = activeType === 'bureaux' ? 'Non renseignée' : 'Adresse de l’immeuble';
+    $('#address').readOnly = true;
+    $('#concierge').readOnly = true;
+    $('#responsibleLabel').textContent = 'Concierge';
     renderBuildingSelection();
     $('#address').value = record.address;
     $('#concierge').value = record.concierge;
     $('#controlDate').value = record.date;
     renderPhotosRemovedNotice(record);
-    renderSections();
-    refreshDerived();
+    if (pendingOffice) {
+      $('#inspectionFields').hidden = true;
+      $('#sections').replaceChildren();
+      renderList();
+    } else {
+      $('#inspectionFields').hidden = false;
+      renderSections();
+      refreshDerived();
+    }
     setStorageStatus();
   }
 
   function renderBuildingSelection() {
     const record = current();
-    const legacy = record.buildingId === undefined;
-    const missing = !!record.buildingId && !buildings.some(building => building.id === record.buildingId);
+    const office = activeType === 'bureaux';
+    const catalog = office ? offices : buildings;
+    const legacy = !office && record.buildingId === undefined;
+    const missing = !!record.buildingId && !catalog.some(building => building.id === record.buildingId);
     const select = $('#buildingSelect');
-    select.innerHTML = `<option value="" disabled>${legacy ? 'Adresse historique conservée' : 'Choisir un immeuble'}</option>` +
+    select.innerHTML = `<option value="" disabled>${legacy ? 'Adresse historique conservée' : office ? 'Choisir un bureau' : 'Choisir un immeuble'}</option>` +
       (missing ? `<option value="${escapeHTML(record.buildingId)}">${escapeHTML(buildingName(record))} (retiré de la liste)</option>` : '') +
-      buildings.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
+      catalog.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
     select.value = record.buildingId || '';
-    select.required = activeType === 'conciergerie' && !legacy;
+    select.required = !legacy;
     $('#buildingHelp').textContent = legacy
       ? 'Contrôle antérieur : l’adresse et le concierge enregistrés sont conservés.'
-      : missing ? 'Cet immeuble a été retiré de la liste. Les informations de ce contrôle sont conservées.'
-        : needsBuilding(record) ? 'Choisissez l’immeuble pour commencer le contrôle.'
-          : 'Adresse et concierge repris de la liste lors du choix de l’immeuble.';
-    $('#inspectionFields').disabled = needsBuilding(record);
-    $('#saveControl').disabled = needsBuilding(record);
-    $('#printControl').disabled = needsBuilding(record);
-    $('#finishControl').disabled = needsBuilding(record);
+      : missing ? 'Ce site a été retiré de la liste. Les informations et le modèle de ce contrôle sont conservés.'
+        : needsBuilding(record) ? `Choisissez ${office ? 'le bureau' : 'l’immeuble'} pour commencer le contrôle.`
+          : 'Adresse et concierge repris de la liste lors du choix du site.';
+    const disabled = needsBuilding(record) || !items.length;
+    $('#inspectionFields').disabled = disabled;
+    $('#saveControl').disabled = disabled;
+    $('#printControl').disabled = disabled;
+    $('#finishControl').disabled = disabled;
   }
 
   function requireBuilding() {
     if (!needsBuilding(current())) return true;
-    const field = activeType === 'conciergerie' ? $('#buildingSelect') : $('#buildingNameInput');
+    const field = $('#buildingSelect');
     field.reportValidity();
     field.focus();
-    notify('Renseignez l’immeuble avant de remplir ou d’imprimer ce contrôle.', true);
+    notify(`Choisissez ${activeType === 'bureaux' ? 'le bureau' : 'l’immeuble'} avant de remplir ou d’imprimer ce contrôle.`, true);
     return false;
   }
 
-  function chooseBuilding() {
-    const building = buildings.find(building => building.id === $('#buildingSelect').value);
+  async function chooseBuilding() {
+    const office = activeType === 'bureaux';
+    const building = (office ? offices : buildings).find(building => building.id === $('#buildingSelect').value);
     if (!building) return;
-    const record = current();
-    if (record.address && (record.address !== building.adresse || record.concierge !== building.concierge) &&
+    let officeSections;
+    if (office) {
+      try {
+        officeSections = window.OFFICE_MODEL.sections(building);
+        // Une capture en cours fait aussi partie du contrôle que l'on conserve.
+        await flushChanges();
+      }
+      catch (error) { renderBuildingSelection(); throw error; }
+    }
+    let record = current();
+    if (office && record.buildingId === building.id && record.officeSections?.length) {
+      renderBuildingSelection();
+      return;
+    }
+    if (office && (archives.has(record.id) || record.comments.text || countPhotos(record) ||
+        Object.values(record.rows).some(row => row.rating || row.remark))) {
+      if (!window.confirm('Choisir ce bureau crée un nouveau contrôle. Le contrôle actuel, ses notes, remarques, photos et PDF seront conservés. Continuer ?')) {
+        renderBuildingSelection(); return;
+      }
+      await newControl();
+      record = current();
+    }
+    if (!office && record.address && (record.address !== building.adresse || record.concierge !== building.concierge) &&
       !window.confirm('Changer l’immeuble de ce contrôle ? Son adresse et son concierge seront remplacés par ceux de la liste. Les notes, remarques et photos seront conservées.')) {
       renderBuildingSelection();
       return;
@@ -377,12 +420,14 @@
     record.buildingName = building.nom;
     record.address = building.adresse;
     record.concierge = building.concierge;
+    if (office) record.officeSections = officeSections;
+    normalizeRecord(record);
     markChanged(record);
     renderEditor();
   }
 
   async function newControl() {
-    if (!items.length) { notify('Modèle à venir. Aucun contrôle ne peut être créé pour le moment.'); return; }
+    if (activeType === 'bureaux' && !offices.length) { notify('Aucun bureau disponible dans la liste.'); return; }
     if (currentId) await flushChanges();
     const record = makeControl();
     controls.set(record.id, record);
@@ -762,6 +807,12 @@
       if (!['conciergerie', 'bureaux'].includes(record.type ?? 'conciergerie')) invalid();
       if (record.completedAt != null && (typeof record.completedAt !== 'string' || Number.isNaN(Date.parse(record.completedAt)))) invalid();
       if (record.photosRemovedAt != null && (typeof record.photosRemovedAt !== 'string' || Number.isNaN(Date.parse(record.photosRemovedAt)))) invalid();
+      let officeSections;
+      if (record.officeSections != null) {
+        if (record.type !== 'bureaux') invalid();
+        try { officeSections = window.OFFICE_MODEL.validateSnapshot(record.officeSections); }
+        catch { invalid(); }
+      }
       // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
       if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
       if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
@@ -778,6 +829,7 @@
         concierge: string(record.concierge), createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
         ...(record.completedAt ? { completedAt: record.completedAt } : {}),
         ...(record.photosRemovedAt ? { photosRemovedAt: record.photosRemovedAt } : {}),
+        ...(officeSections ? { officeSections } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
     const owners = new Map(records.map(record => [record.id, record]));
@@ -851,9 +903,9 @@
     if (!record || view !== 'control' || !items.length) { $('#printReport').innerHTML = ''; return; }
     $('#printReport').innerHTML = `<header class="print-header"><img class="print-logo" src="logo-horizontal.png" alt="E. Blanco SA">
       <h1>${record.type === 'bureaux' ? 'Modèle de contrôle de l’entretien de bureaux' : 'Modèle de contrôle des conciergeries'}</h1>
-      <dl class="print-metadata">${record.buildingName ? `<div><dt>Immeuble</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
-        <div><dt>Adresse de l’immeuble</dt><dd>${escapeHTML(record.address)}</dd></div>
-        <div><dt>${record.type === 'bureaux' ? 'Responsable' : 'Concierge'}</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
+      <dl class="print-metadata">${record.buildingName ? `<div><dt>${record.type === 'bureaux' ? 'Bureau' : 'Immeuble'}</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
+        <div><dt>${record.type === 'bureaux' ? 'Adresse du bureau' : 'Adresse de l’immeuble'}</dt><dd>${escapeHTML(record.address)}</dd></div>
+        <div><dt>Concierge</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
         <div><dt>Date</dt><dd>${escapeHTML(displayDate(record.date))}</dd></div></dl>
       <p class="print-legend">1 = Très bon · 2 = Bon · 3 = Moyen · 4 = Mauvais</p>
       <p>Joindre une photo pour la note 4, ainsi que pour tous les dégâts et actes de vandalisme.</p></header>
@@ -863,7 +915,7 @@
             <thead><tr><th scope="col">Élément contrôlé</th>${[1, 2, 3, 4].map(value => `<th scope="col">${value}</th>`).join('')}<th scope="col">Remarques</th></tr></thead>
             <tbody>${group.items.map(item => {
               const row = record.rows[item.id];
-              return `<tr><th scope="row">${escapeHTML(item.label)}</th>${[1, 2, 3, 4].map(value => `<td class="print-rating">${row.rating === value ? '×' : ''}</td>`).join('')}
+              return `<tr><th scope="row">${escapeHTML(item.label)}${item.frequency ? `<br><small>Fréquence attendue : ${escapeHTML(item.frequency)}</small>` : ''}</th>${[1, 2, 3, 4].map(value => `<td class="print-rating">${row.rating === value ? '×' : ''}</td>`).join('')}
                 <td class="print-remark">${escapeHTML(row.remark)}</td></tr>${row.photos.length
                   ? `<tr class="print-photos-row"><td colspan="6"><strong>${escapeHTML(item.label)}</strong>${printPhotos(row.photos)}</td></tr>` : ''}`;
             }).join('')}</tbody></table>`).join('')}</section>`).join('')}
@@ -878,8 +930,9 @@
 
   function setType(type) {
     activeType = type;
-    config = templates[type];
-    items = itemsFor(type);
+    const subject = current()?.type === type ? current() : type;
+    config = templateFor(subject);
+    items = itemsFor(subject);
     itemIds = new Set(items.map(item => item.id));
   }
 
@@ -935,7 +988,7 @@
     currentId = sortedControls(type)[0]?.id;
     showView('control');
     if (currentId) renderEditor();
-    else if (items.length) await newControl();
+    else if (type === 'bureaux' ? offices.length : items.length) await newControl();
     else renderPendingModel();
   }
 
@@ -943,12 +996,12 @@
     $('#sections').replaceChildren();
     $('#workflowTitle').textContent = typeLabels[activeType];
     $('#workflowEyebrow').textContent = 'Contrôles enregistrés';
-    $('#workflowDescription').textContent = 'Le modèle de contrôle de cette section n’est pas encore disponible.';
+    $('#workflowDescription').textContent = 'Choisissez un bureau pour retrouver sa checklist.';
     $('#officePlaceholder').hidden = false;
     $('#controlForm').hidden = true;
     $('#headerControl').hidden = true;
     $('#controlActions').hidden = true;
-    $('#newControl').disabled = true;
+    $('#newControl').disabled = activeType === 'bureaux' && !offices.length;
     renderList();
   }
 
@@ -1097,7 +1150,7 @@
       const timestamp = new Date().toISOString();
       record.updatedAt = timestamp;
       if (finish) record.completedAt = timestamp;
-      const blob = await window.CONTROL_PDF.generate(record, templates[record.type]);
+      const blob = await window.CONTROL_PDF.generate(record, templateFor(record));
       const previous = archives.get(record.id);
       const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
         buildingName: record.buildingName, address: record.address, date: record.date,
@@ -1183,14 +1236,7 @@
       const button = event.target.closest('[data-open-control]');
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
-    $('#buildingSelect').addEventListener('change', chooseBuilding);
-    ['buildingNameInput', 'address', 'concierge'].forEach(id => $(`#${id}`).addEventListener('input', event => {
-      if (activeType !== 'bureaux' || !current()) return;
-      current()[id === 'buildingNameInput' ? 'buildingName' : id] = event.target.value;
-      markChanged();
-      renderBuildingSelection();
-      refreshDerived();
-    }));
+    $('#buildingSelect').addEventListener('change', () => perform(chooseBuilding));
     ['controlDate'].forEach(id => {
       $(`#${id}`).addEventListener('input', event => {
         if (id === 'controlDate' && !validDate(event.target.value)) return;

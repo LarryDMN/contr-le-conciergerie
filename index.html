@@ -6,15 +6,16 @@
     <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
     <title>Contrôles et dossiers — E. Blanco SA</title>
-    <link rel="stylesheet" href="style.css?v=4">
-    <script src="config.js" defer></script>
+    <link rel="stylesheet" href="style.css?v=5">
+    <script src="config.js?v=5" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="data/bureaux.js" defer></script>
+    <script src="data/bureaux.js?v=5" defer></script>
+    <script src="office-model.js?v=5" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js" defer></script>
-    <script src="lists.js?v=4" defer></script>
-    <script src="app.js?v=4" defer></script>
+    <script src="pdf.js?v=5" defer></script>
+    <script src="lists.js?v=5" defer></script>
+    <script src="app.js?v=5" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -49,7 +50,7 @@
         </button>
         <button type="button" class="home-card" data-open-type="bureaux">
           <span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 27V5h22v22M2 27h28M10 10h3m6 0h3m-12 6h3m6 0h3m-9 11v-6h6v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="home-card-content"><span class="home-card-title">Contrôle entretien de bureaux</span><span class="home-card-description">Modèle à venir.</span><span id="homeOfficeCount" class="home-card-count">0 contrôle enregistré</span></span>
+          <span class="home-card-content"><span class="home-card-title">Contrôle entretien de bureaux</span><span class="home-card-description">Bureaux, zones et fréquences d’entretien.</span><span id="homeOfficeCount" class="home-card-count">0 contrôle enregistré</span></span>
           <span class="home-card-arrow" aria-hidden="true">→</span>
         </button>
       </div>
@@ -117,9 +118,8 @@
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">
           <div class="panel-heading"><h2 id="controlHeaderTitle">Informations du contrôle</h2></div>
           <div class="header-fields">
-            <label id="buildingSelectField" class="form-field building-field" for="buildingSelect"><span>Immeuble <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse et le concierge sont remplis automatiquement.</span></label>
-            <label id="buildingNameField" class="form-field building-field" for="buildingNameInput" hidden><span>Nom du site <span class="required-label">(obligatoire)</span></span><input id="buildingNameInput" type="text" autocomplete="organization" placeholder="Nom du site"></label>
-            <label class="form-field address-field" for="address"><span>Adresse de l’immeuble</span><input id="address" type="text" autocomplete="street-address" readonly placeholder="Adresse de l’immeuble"></label>
+            <label id="buildingSelectField" class="form-field building-field" for="buildingSelect"><span><span id="buildingSelectLabel">Immeuble</span> <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse et le concierge sont remplis automatiquement.</span></label>
+            <label class="form-field address-field" for="address"><span id="addressLabel">Adresse de l’immeuble</span><input id="address" type="text" autocomplete="street-address" readonly placeholder="Adresse de l’immeuble"></label>
             <label class="form-field" for="concierge"><span id="responsibleLabel">Concierge</span><input id="concierge" type="text" autocomplete="name" readonly placeholder="Non renseigné"></label>
             <label class="form-field" for="controlDate"><span>Date du contrôle</span><input id="controlDate" type="date"></label>
           </div>

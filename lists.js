@@ -136,7 +136,7 @@
               <span class="visually-hidden">Sélectionner ${escapeHTML(name)}, contrôle du ${escapeHTML(date)}</span></label>
             <button type="button" class="open-control" data-open-control="${escapeHTML(id)}" ${id === currentId ? 'aria-current="true"' : ''}>
               <span class="control-date">${escapeHTML(date)}</span><span class="control-address">${escapeHTML(name)}</span>
-              <span class="control-meta">${escapeHTML(record.concierge || (type === 'bureaux' ? 'Responsable non renseigné' : 'Concierge non renseigné'))}
+              <span class="control-meta">${escapeHTML(record.concierge || 'Concierge non renseigné')}
                 <span>${rated} / ${total}</span></span>
               ${record.photosRemovedAt ? '<span class="photos-removed-list">Photos retirées</span>' : ''}
             </button>

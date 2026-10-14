@@ -155,9 +155,9 @@
       y += height + 2;
     }
 
-    if (record.buildingName) metadata('Immeuble', record.buildingName);
+    if (record.buildingName) metadata(type === 'bureaux' ? 'Bureau' : 'Immeuble', record.buildingName);
     metadata('Adresse', record.address);
-    metadata(type === 'bureaux' ? 'Responsable' : 'Concierge', record.concierge);
+    metadata('Concierge', record.concierge);
     const parts = String(record.date || '').split('-');
     metadata('Date', parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : record.date);
     y += 2;
@@ -175,12 +175,15 @@
 
     function heading(value) {
       // Garde un titre avec le début de son tableau, sans toucher au pied de page.
-      if (y + 37 > limit) nextPage();
+      doc.setFont('helvetica', 'bold').setFontSize(11);
+      const lines = doc.splitTextToSize(text(value), width - 6);
+      const height = Math.max(9, lines.length * 4.5 + 4);
+      if (y + height + 28 > limit) nextPage();
       doc.setFillColor(...colors['bleu-clair']).setDrawColor(...colors.anthracite).setLineWidth(.25);
-      doc.rect(PAGE.margin, y, width, 9, 'FD');
+      doc.rect(PAGE.margin, y, width, height, 'FD');
       doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...colors.anthracite);
-      doc.text(text(value), PAGE.margin + 3, y + 6);
-      y += 11;
+      doc.text(lines, PAGE.margin + 3, y + 6);
+      y += height + 2;
     }
 
     function table(body, comments = false) {
@@ -228,7 +231,10 @@
         if (group.title) body.push({ element: { content: text(group.title), colSpan: 6 }, _kind: 'group' });
         for (const item of group.items || []) {
           const row = record.rows?.[item.id] || {};
-          body.push({ element: text(item.label), ...Object.fromEntries([1, 2, 3, 4].map(value => [`rating${value}`, Number(row.rating) === value ? 'X' : ''])), remark: text(row.remark) });
+          const frequency = item.frequency || item.frequence || '';
+          // La fréquence informe le lecteur : elle n'intervient pas dans la note.
+          const label = frequency ? `${text(item.label)}\nFréquence : ${text(frequency)}` : text(item.label);
+          body.push({ element: label, ...Object.fromEntries([1, 2, 3, 4].map(value => [`rating${value}`, Number(row.rating) === value ? 'X' : ''])), remark: text(row.remark) });
           if (row.photos?.length) body.push(...photoRows(await preparePhotos(row.photos), text(item.label)));
         }
       }
@@ -263,7 +269,8 @@
       doc.setDrawColor(...colors.anthracite).setLineWidth(.2);
       doc.line(PAGE.margin, 278, PAGE.width - PAGE.margin, 278);
       doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...colors.gris);
-      const footer = doc.splitTextToSize(text(config.footer), width);
+      const footerText = type === 'bureaux' ? config.officeFooter || config.footer : config.footer;
+      const footer = doc.splitTextToSize(text(footerText), width);
       doc.text(footer.slice(0, 3), PAGE.width / 2, 282, { align: 'center', lineHeightFactor: 1.2 });
       doc.text(`${page} / ${pages}`, PAGE.width / 2, 294, { align: 'center' });
     }
