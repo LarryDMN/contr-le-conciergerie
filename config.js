@@ -6,6 +6,8 @@ window.CONCIERGERIE_CONFIG = {
   version: 1,
   defaultAddress: "rue de la Prulay 60-62 – 1217 Meyrin",
   footer: "E. Blanco SA – Route des Jeunes 55 – 1212 Grand-Lancy – Suisse – Tél 022.343.66.07 – info@eblanco.ch – www.eblanco.ch",
+  // Les documents de bureaux n'affichent aucun numéro de téléphone.
+  officeFooter: "E. Blanco SA – Route des Jeunes 55 – 1212 Grand-Lancy – Suisse – info@eblanco.ch – www.eblanco.ch",
   ratings: [
     { value: 1, label: "Très bon" },
     { value: 2, label: "Bon" },

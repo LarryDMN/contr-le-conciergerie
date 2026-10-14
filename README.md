@@ -2,7 +2,7 @@
 
 Application web en français pour remplir un contrôle sur smartphone, tablette ou ordinateur. L'accueil propose **Contrôle conciergerie**, **Contrôle entretien de bureaux** et l'accès aux **Dossiers** de PDF archivés. Les données, photos et PDF sont conservés localement dans IndexedDB ; aucun compte ni serveur applicatif n'est requis.
 
-Le formulaire de conciergerie reprend les 30 lignes du « Modèle de contrôle des conciergeries », dans leur ordre d'origine. Chaque ligne permet de choisir une note, d'écrire une remarque et de joindre plusieurs photos. La section bureaux est prête à accueillir son modèle : elle affiche **Modèle à venir** tant que `data/bureaux.js` reste vide. Aucune ligne de bureaux n'est ajoutée par défaut.
+Le formulaire de conciergerie reprend les 30 lignes du « Modèle de contrôle des conciergeries », dans leur ordre d'origine. Chaque bureau utilise sa propre checklist définie dans `data/bureaux.js`. Le bureau **Bona Créations SA – Rolle (A-One)** dispose des 21 lignes et des trois zones fournies, avec leur fréquence d'entretien. Chaque ligne permet de choisir une note, d'écrire une remarque et de joindre plusieurs photos. Un bureau sans checklist affiche **Modèle à venir** ; aucune ligne supplémentaire n'est inventée.
 
 L'interface utilise HTML, CSS et JavaScript vanilla. La génération des PDF utilise des copies locales de jsPDF 4.2.1 et de son extension AutoTable 5.0.8, fournies avec leurs licences MIT dans `vendor/` : aucun téléchargement de bibliothèque n'est nécessaire pendant l'utilisation. Leur provenance et leurs intégrités sont décrites dans [vendor/README.md](vendor/README.md).
 
@@ -14,10 +14,11 @@ Conserver l'ensemble du dossier, avec les fichiers suivants à la racine et les 
 - `style.css` : interface mobile et feuille de style d'impression ;
 - `app.js` : navigation, formulaire, sauvegarde, photos, dossiers, import et export ;
 - `lists.js` : filtres, sélections et pagination des contrôles et des archives ;
+- `office-model.js` : adaptation et conservation des checklists propres à chaque bureau ;
 - `pdf.js` : génération des PDF avec le logo et les tableaux du formulaire ;
 - `config.js` : pied de page, notes et liste des lignes ;
 - `data/conciergeries.js` : liste locale des conciergeries, avec leurs adresses et leurs concierges ;
-- `data/bureaux.js` : modèle de bureaux à compléter avec le formulaire fourni ;
+- `data/bureaux.js` : catalogue des bureaux et checklist propre à chacun ;
 - `vendor/` : bibliothèques PDF locales et licences ;
 - `logo-horizontal.png` : logo utilisé à l'écran et dans le document imprimé ;
 - `sw.js` : cache de l'application pour son utilisation hors connexion.
@@ -38,7 +39,7 @@ Pour un essai sur ordinateur, un serveur statique local suffit, par exemple `pyt
 
 Chaque modification est sauvegardée automatiquement, y compris le brouillon créé avant de choisir une conciergerie. L'indicateur de sauvegarde permet de vérifier que l'écriture a terminé. **Enregistrer** sauvegarde aussi un PDF dans **Dossiers** ; **Terminer le contrôle** effectue la même sauvegarde et marque la fin du contrôle. **Générer le PDF** actualise aussi l'archive et télécharge le document. La sauvegarde automatique des champs ne régénère pas le PDF à chaque frappe : après une modification, appuyer sur **Enregistrer** pour actualiser le document archivé. En cas d'erreur de stockage, conserver la page ouverte et exporter une copie avant de la quitter.
 
-Le nom de la conciergerie et la progression restent visibles dans l'en-tête fixe. La barre inférieure garde **Enregistrer** et **Générer le PDF** accessibles pendant le défilement, sur téléphone comme sur tablette.
+Le nom de l'immeuble ou du bureau et la progression restent visibles dans l'en-tête fixe. La barre inférieure garde **Enregistrer** et **Générer le PDF** accessibles pendant le défilement, sur téléphone comme sur tablette.
 
 La liste de chaque section est triée par date décroissante et n'affiche que ses propres contrôles, par pages de 50. Le champ `type` vaut `conciergerie` ou `bureaux`. Les contrôles créés avant cette version reçoivent automatiquement le type `conciergerie`, sans perdre leur adresse, notes ou photos.
 
@@ -46,7 +47,13 @@ La liste permet de rouvrir un contrôle pour le modifier, de le dupliquer ou de 
 
 Les anciens contrôles et les anciens exports conservent leur adresse et leur concierge d'origine, même s'ils ne sont pas rattachés à la nouvelle liste. Ils restent consultables et leurs notes, remarques et photos restent modifiables sans sélection obligatoire ni migration manuelle. Leurs champs d'adresse et de concierge sont désormais en lecture seule, comme ceux des nouveaux contrôles.
 
-Dans **Contrôle entretien de bureaux**, la liste est indépendante de la conciergerie. Avec le fichier vide fourni, **Modèle à venir** est affiché et la création d'un nouveau contrôle de bureaux reste indisponible. Après ajout du modèle officiel, la section utilisera les mêmes notes, remarques, photos et sauvegardes ; les informations du site de bureaux pourront être renseignées dans son formulaire.
+Dans **Contrôle entretien de bureaux**, créer un contrôle puis choisir le bureau dans la liste déroulante obligatoire. Son adresse et son concierge sont remplis depuis `data/bureaux.js`, en lecture seule ; la date du jour reste modifiable. Dans l'entrée fournie pour **Bona Créations SA – Rolle (A-One)**, l'adresse et le concierge sont volontairement vides : l'application les conserve ainsi, sans empêcher le contrôle.
+
+Les trois zones **A. Salles – Cuisine (garde-manger) – Terrasse**, **B. Sanitaires – Vestiaires** et **Généralités** contiennent respectivement 9, 9 et 3 lignes. Les notes, remarques, photos, rappels non bloquants pour la note 4, commentaires et sauvegardes fonctionnent comme en conciergerie. La fréquence, par exemple **5x/sem**, est affichée à côté du libellé ; elle sert uniquement d'information et ne conditionne aucune action. Le PDF reprend les titres des zones, les lignes et leurs fréquences, puis est classé dans **Dossiers > Contrôle entretien de bureaux > nom du bureau > année**.
+
+Un bureau dont la propriété `checklist` est vide conserve **Modèle à venir**, sans lignes à noter ni PDF de contrôle à générer. Les listes et sélections de contrôles restent séparées entre les deux activités. Aucun champ de téléphone n'est proposé ni enregistré pour les bureaux ; leur PDF n'affiche pas de numéro de téléphone.
+
+Le contrôle conserve la checklist et les informations du bureau choisies lors de sa création. Modifier ou retirer une entrée du catalogue ne change pas les contrôles historiques. Pour choisir un autre bureau après avoir commencé un contrôle, l'application propose de créer un nouveau contrôle et conserve l'ancien avec ses notes, photos et archive PDF.
 
 ## Filtrer et gérer plusieurs contrôles
 
@@ -80,9 +87,11 @@ Chaque clic sur **Enregistrer**, **Terminer le contrôle** ou **Générer le PDF
 
 Le nom de téléchargement suit `AAAA-MM-JJ_TYPE_IMMEUBLE.pdf`, par exemple `2026-10-13_conciergerie_Prulay-60-62.pdf`. L'année de classement correspond à la date du contrôle. Les caractères incompatibles avec un nom de fichier sont remplacés. Le PDF archivé reflète le dernier enregistrement explicite, qui peut être plus ancien que les dernières modifications sauvegardées automatiquement.
 
-Le document reprend le logo horizontal, le type de contrôle, l'immeuble, l'adresse, le concierge ou responsable, la date, les tableaux des sections, les colonnes **1 2 3 4 Remarques**, une croix dans la note choisie et les photos sous leur ligne. Les sections repliées à l'écran restent présentes dans le PDF. Le pied de page conserve la valeur `footer` de `config.js` :
+Le document reprend le logo horizontal, le type de contrôle, l'immeuble ou le bureau, l'adresse, le concierge, la date, les tableaux des sections, les colonnes **1 2 3 4 Remarques**, une croix dans la note choisie et les photos sous leur ligne. Le PDF bureaux conserve les titres des zones et affiche la fréquence de chaque ligne. Les sections repliées à l'écran restent présentes dans le PDF. Le pied de page de conciergerie conserve la valeur `footer` de `config.js` :
 
 > E. Blanco SA – Route des Jeunes 55 – 1212 Grand-Lancy – Suisse – Tél 022.343.66.07 – info@eblanco.ch – www.eblanco.ch
+
+Le pied de page bureaux utilise la valeur `officeFooter` de `config.js`, avec ces coordonnées sans la partie téléphone.
 
 Les bibliothèques PDF sont copiées dans le dépôt : la génération et le téléchargement fonctionnent sans réseau une fois l'application disponible hors connexion. Un PDF est un document figé ; il ne remplace pas un export JSON pour restaurer un contrôle éditable et ses photos.
 
@@ -110,27 +119,31 @@ Pour imprimer une archive figée, utiliser **Télécharger** dans **Dossiers**, 
 
 ## Adapter le formulaire
 
-Modifier `config.js` pour changer le pied de page, les libellés ou la liste des lignes. Les propriétés `sections`, `groups` et `items` définissent l'ordre du formulaire. Ajouter une ligne avec un **nouvel identifiant `id` unique**. Ne pas renommer les identifiants de lignes déjà utilisées : les contrôles sauvegardés s'appuient sur eux pour retrouver leurs notes, remarques et photos. Renommer seulement `label` ou `title` pour changer un texte.
+Modifier `config.js` pour changer les pieds de page (`footer` pour la conciergerie, `officeFooter` pour les bureaux), les notes communes ou le modèle de conciergerie. Pour ce modèle, les propriétés `sections`, `groups` et `items` définissent l'ordre du formulaire. Ajouter une ligne avec un **nouvel identifiant `id` unique**. Ne pas renommer les identifiants de lignes déjà utilisées : les contrôles sauvegardés s'appuient sur eux pour retrouver leurs notes, remarques et photos. Renommer seulement `label` ou `title` pour changer un texte. Les checklists propres aux bureaux se modifient dans `data/bureaux.js`, selon la procédure ci-dessous.
 
-## Compléter le modèle de bureaux
+## Ajouter ou modifier un bureau
 
-Le fichier `data/bureaux.js` contient volontairement `window.BUREAUX = [];` et un commentaire « à compléter ». Attendre le modèle réel de contrôle d'entretien de bureaux avant de le remplir : reprendre uniquement ses intitulés et son ordre, sans inventer de lignes.
+Ouvrir `data/bureaux.js`, puis **copier le bloc complet** de Bona Créations dans le tableau `const bureaux = [...]`, en séparant les blocs par une virgule. Pour le nouveau bloc :
 
-Remplacer le tableau vide par un tableau de sections. Chaque section possède `id`, `title` et `groups`. Chaque groupe possède `id`, `title` et `items`. Chaque ligne possède `id` et `label`. La forme attendue est :
+1. Donner un `id` unique et stable, composé de lettres minuscules, de chiffres et de traits d'union. Ne pas réutiliser l'identifiant d'un bureau retiré.
+2. Renseigner `nom`, `adresse` et `concierge` avec les informations réelles du bureau. Une adresse ou un concierge vide reste vide dans le formulaire. Ne pas ajouter de propriété téléphone.
+3. Remplacer `checklist` par les seules zones et lignes du modèle fourni pour ce bureau, dans leur ordre. Chaque zone possède `titre` et `lignes` ; chaque ligne possède `libelle` et `frequence`. Par exemple, le bloc fourni utilise la ligne `{ libelle: "Aspiration des sols", frequence: "5x/sem" }`. Les fréquences sont du texte indicatif : aucune règle de planning n'en dépend.
+4. Si le modèle n'est pas encore disponible, renseigner `checklist: []`. Le bureau reste sélectionnable et affiche **Modèle à venir** ; ne pas copier les lignes d'un autre bureau pour remplir ce vide.
+5. Sauvegarder le fichier, publier la mise à jour du cache comme décrit ci-dessous, puis créer un nouveau contrôle pour vérifier le nom, les champs automatiques, l'ordre des zones et les fréquences.
+
+La structure du catalogue est la suivante ; les points de suspension représentent les données réelles à conserver ou à compléter, pas du JavaScript à copier :
 
 ```text
-section { id, title, groups: [
-  groupe { id, title, items: [
-    ligne { id, label }
-  ] }
-] }
+const bureaux = [
+  { id, nom, adresse, concierge, checklist: [
+    { titre, lignes: [ { libelle, frequence }, ... ] }, ...
+  ] }, ...
+];
 ```
 
-Cette notation explique la structure et n'est pas du JavaScript à copier tel quel. Utiliser la même syntaxe JavaScript que les sections de `config.js`, avec les textes du modèle officiel de bureaux. Choisir des identifiants uniques et stables ; modifier ensuite les libellés sans changer les identifiants utilisés par des contrôles existants. Un titre de groupe peut être vide lorsqu'aucune sous-section n'existe sur le modèle.
+Pour modifier un bureau, changer les valeurs de son bloc en conservant son `id`. Pour le retirer de la liste des nouveaux contrôles, supprimer ce bloc. Les contrôles enregistrés gardent leur propre exemplaire du nom, de l'adresse, du concierge, des zones, des libellés et des fréquences : une modification du catalogue ne remplace pas leur historique. Ces informations sont également incluses dans les exports JSON.
 
-Pour les identifiants des lignes, utiliser les lettres minuscules `a-z`, les chiffres et les traits d'union, en commençant par une lettre. Ce format est accepté par l'import des sauvegardes ; les libellés visibles peuvent contenir des accents et des espaces.
-
-Les notes, les photos, la zone de commentaires et le pied de page sont gérés par l'application ; seule la liste des sections, groupes et lignes doit être renseignée ici. Conserver le fichier chargé par une balise `script` classique pour l'ouverture directe et le fonctionnement hors connexion. Après une modification, publier aussi une nouvelle version du cache et vérifier la section bureaux avant utilisation sur place.
+Les identifiants techniques des zones et lignes sont construits par l'application ; il n'est pas nécessaire d'en ajouter au fichier. Les notes, photos, commentaires et PDF sont gérés par la même logique que la conciergerie. Conserver le fichier chargé par une balise `script` classique pour l'ouverture directe et le fonctionnement hors connexion.
 
 ## Adapter la liste des conciergeries
 
@@ -155,7 +168,7 @@ Ce fichier est chargé par une balise `script` classique, sans module JavaScript
 
 ## Publier une mise à jour
 
-Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v4`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `style.css` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=4` à `?v=5`, avec le cache `v5`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
+Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v5`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `office-model.js`, `style.css`, `config.js` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=5` à `?v=6`, avec le cache `v6`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
 
 Si seule la liste `data/conciergeries.js` ou le modèle `data/bureaux.js` change, augmenter au minimum la version du cache dans `sw.js`. Ces mises à jour ne suppriment pas les contrôles dans IndexedDB. Ouvrir la nouvelle version avec connexion, attendre la disponibilité hors connexion, puis recharger la page avec connexion. Vérifier les nouvelles données et le fonctionnement hors ligne avant une visite sur place.
 
@@ -163,7 +176,7 @@ Si seule la liste `data/conciergeries.js` ou le modèle `data/bureaux.js` change
 
 Ces scénarios sont à exécuter avec un navigateur récent sur l'appareil choisi ; cette liste décrit les vérifications attendues et ne constitue pas un compte rendu de tests.
 
-1. **Accueil et séparation des types :** vérifier les deux grandes cartes de contrôle et l'accès à **Dossiers**. Dans la section bureaux, vérifier **Modèle à venir** et l'absence de lignes inventées ou de création de contrôle tant que le modèle est vide. Depuis un ancien export v1, importer un contrôle sans `type` : il doit apparaître uniquement en conciergerie. Dans un profil de test, importer aussi un contrôle de type `bureaux` et vérifier qu'il n'apparaît pas dans la liste conciergerie.
+1. **Accueil et séparation des types :** vérifier les deux grandes cartes de contrôle et l'accès à **Dossiers**. Dans la section bureaux, vérifier le choix obligatoire de Bona Créations, les 21 lignes exactes réparties dans les trois zones et les fréquences. Dans une copie de test du catalogue, ajouter un bureau avec `checklist: []` : le choisir doit afficher **Modèle à venir**, sans lignes inventées. Depuis un ancien export v1, importer un contrôle sans `type` : il doit apparaître uniquement en conciergerie. Vérifier qu'un contrôle bureaux n'apparaît pas dans la liste conciergerie.
 2. **Création, note 4, photo et rechargement :** ouvrir la section conciergerie et créer un contrôle. Avant la sélection, vérifier que la notation, **Enregistrer** et **Générer le PDF** sont indisponibles. Choisir « Prulay 60-62 » ; vérifier l'adresse automatiquement remplie, le concierge vide conformément au fichier initial, les deux champs en lecture seule et la date modifiable. Noter « Eclairage » de l'entrée en 1, « État du sol » des paliers en 3 avec « À nettoyer », et « Salissures, graffitis » en 4 avec « Graffiti à retirer ». Vérifier le compteur à 3/30 et le rappel de photo, puis ajouter une photo à la ligne en 4 : le rappel doit disparaître et la vignette doit s'ouvrir. Appuyer sur **Enregistrer**, attendre la confirmation, recharger et rouvrir le contrôle. Vérifier l'immeuble, la date, les notes, les remarques et la photo.
 3. **Archive, remplacement et téléchargement :** dans **Dossiers**, retrouver le PDF sous **Conciergerie > Prulay 60-62 > année du contrôle**. Télécharger le document et vérifier son nom, le logo, les cinq tableaux, les croix, les remarques, la photo et le pied de page. Modifier une remarque puis enregistrer de nouveau : une seule archive doit rester pour ce contrôle et son PDF téléchargé doit contenir la modification. Supprimer cette archive et vérifier que le contrôle reste disponible ; le réenregistrer recrée son archive. Vérifier aussi **Terminer le contrôle** sur une copie de test.
 4. **Export et import avec PDF :** exporter les contrôles et archives, puis importer le JSON dans un profil vide. Vérifier les types séparés, les notes, les photos et le PDF téléchargeable au bon emplacement. Réimporter le même JSON dans ce profil et vérifier que les données présentes sont conservées et que les PDF importés restent associés à leurs contrôles copiés. Vérifier qu'un ancien export sans PDF est toujours accepté.
@@ -174,12 +187,30 @@ Ces scénarios sont à exécuter avec un navigateur récent sur l'appareil chois
 9. **Photos seulement et date limite :** sélectionner un contrôle avec des photos de ligne et de commentaires, puis annuler la confirmation de retrait. Vérifier que les photos restent présentes. Confirmer ensuite : les notes, remarques et PDF doivent rester inchangés, les photos doivent disparaître et la fiche doit signaler leur retrait après rechargement. Depuis l'accueil, choisir une date limite avec des contrôles de chaque type avant, le jour même et après cette date ; seuls ceux strictement antérieurs avec des photos doivent être concernés. Vérifier la baisse de l'espace affiché et la conservation des PDF.
 10. **Dossiers en masse :** sélectionner plusieurs PDF, vérifier le nombre dans la confirmation, annuler puis confirmer la suppression. Les contrôles et leurs photos doivent rester présents. Vérifier aussi la sauvegarde proposée avant suppression et sa restauration, ainsi que la conservation des copies déjà téléchargées.
 11. **1 000 contrôles et affichage mobile :** importer un JSON de test avec 1 000 contrôles fictifs dans un profil jetable. À 320 px de largeur, vérifier que seulement 50 lignes sont affichées, que changer de page, filtrer par immeuble/année/mois et rechercher restent réactifs, et qu'aucune commande ne déborde horizontalement. Sélectionner des contrôles sur deux pages, changer un filtre et vérifier que le compteur garde la sélection ; vider la sélection puis vérifier qu'aucune suppression ne peut être déclenchée sans choix.
+12. **Contrôle bureaux complet avec photo :** à 320 px, créer un contrôle puis choisir Bona Créations. Vérifier les champs d'adresse et de concierge vides et en lecture seule, la date modifiable et l'absence de téléphone. Noter les 21 lignes, dont une en 4 ; vérifier le rappel de photo, ajouter une photo et une remarque puis terminer le contrôle. Recharger et vérifier les 21 notes, la photo, la remarque et les fréquences. Télécharger le PDF dans **Dossiers > Contrôle entretien de bureaux > Bona Créations SA – Rolle (A-One) > année** : vérifier les trois titres de zones, les 21 lignes, les fréquences, la photo, le logo et l'absence de numéro de téléphone. Modifier une remarque puis enregistrer : l'unique PDF de ce contrôle doit être remplacé.
+13. **Historique bureaux et restauration :** exporter ce contrôle avec son PDF, puis l'importer dans un profil vide et vérifier la checklist, les notes et la photo. Dans une copie de test du catalogue, modifier puis retirer Bona Créations : le contrôle enregistré doit conserver les données et zones initiales. Changer de bureau sur un contrôle commencé doit proposer un nouveau contrôle, préserver les notes et photos de l'ancien et conserver son PDF. Vérifier aussi le rechargement et la génération de PDF bureaux hors connexion.
 
 Pour compléter la validation, dupliquer un contrôle et vérifier l'indépendance de la copie. Dans une copie de test du dossier, modifier puis retirer l'entrée de la liste des conciergeries et vérifier que les contrôles existants conservent leurs informations. Replier une section puis imprimer le formulaire en A4 portrait pour vérifier que la structure papier reste complète.
 
 Utiliser des photos de test sans information sensible. Il n'est pas nécessaire de créer des données d'exemple dans l'application utilisée en production.
 
 ## Résultats de validation
+
+### Contrôles d'entretien de bureaux
+
+Sur la branche `feat/checklists-bureaux`, **15 vérifications automatisées ont réussi** (13 scénarios et deux régressions ciblées), sans erreur JavaScript, avec Chromium **154.0.8037.57** sous Linux. Le navigateur simulait un écran tactile mobile de **320 × 850 px**, avec la langue `fr-CH` et le fuseau `Europe/Zurich` :
+
+- choix obligatoire de Bona Créations, conformité des 21 lignes et des trois zones, fréquences affichées, adresse et concierge vides en lecture seule, date du jour et absence de champ téléphone ;
+- contrôle complet **21/21**, dont une note 4 avec rappel non bloquant, une photo de ligne réduite à 1 280 pixels maximum et une photo de commentaires ; **Terminer le contrôle**, rechargement et conservation des notes, remarques et images ;
+- PDF archivé puis téléchargé de trois pages, avec les trois titres de zones, les fréquences, 21 croix, le logo et les photos, sans numéro de téléphone ; impression native également vérifiée, sans modification de l'archive ;
+- nouvel onglet hors connexion, avec restitution de la checklist et des photos puis génération et téléchargement du PDF sans réseau ;
+- export/import JSON v2 de la checklist historique, des notes et photos, avec PDF restauré octet pour octet ; import en doublon sans écraser l'existant, archives rattachées aux copies et marqueur de retrait des photos conservé ;
+- catalogues de test avec plusieurs bureaux, checklists indépendantes et bureau sans modèle affichant **Modèle à venir** ; modification puis retrait d'une entrée sans changer le contrôle historique ni son PDF régénéré ;
+- changement de bureau annulé sans perte, puis confirmé avec création d'un contrôle distinct ; choix effectué pendant la compression d'une photo, avec attente de sa sauvegarde et conservation sur le bon contrôle en cas d'annulation ;
+- création d'un nouveau contrôle pendant la compression, avec photo conservée sur l'ancien contrôle ; import d'une checklist ayant une ligne absente des notes enregistrées, puis affichage et notation de cette ligne sans perte des vingt autres ;
+- accueil, contrôle complet et **Dossiers** à 320 px sans débordement horizontal, avec commandes d'au moins 44 pixels ; vérification de la séparation avec les 30 lignes de conciergerie et de la présence de la gestion de masse.
+
+Les bureaux supplémentaires utilisés pour les tests ont été simulés dans le navigateur ; le catalogue livré contient uniquement l'entrée Bona Créations fournie. Ces résultats concernent Chromium en émulation mobile, pas un téléphone physique. Les limites de validation des autres navigateurs et du dossier externe sur ordinateur restent indiquées ci-dessous.
 
 ### Gestion de masse
 

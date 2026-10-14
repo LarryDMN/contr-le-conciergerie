@@ -138,6 +138,7 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 .row-main { display: flex; flex-direction: column; gap: 12px; }
 .row-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .item-label { font-size: 14px; font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+.item-frequency { display: inline-block; flex-shrink: 0; max-width: 100%; margin: 4px 0 0 6px; padding: 3px 7px; border-radius: 6px; background: var(--bleu-clair); color: var(--anthracite); font-size: 12px; font-weight: 500; line-height: 1.4; vertical-align: middle; overflow-wrap: anywhere; }
 .item-number { color: var(--gris); font-size: 10px; min-width: 12px; }
 .rating-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; gap: 5px; }
 .rating-button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; min-height: 58px; padding: 7px 2px; border: 1px solid var(--bordure); color: var(--anthracite); background: var(--gris-clair); }
@@ -429,6 +430,7 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
   .print-table th:first-child, .print-table th:last-child { text-align: left; }
   .print-table .print-rating { text-align: center; vertical-align: middle; color: var(--bleu); font-weight: bold; }
   .print-table .print-rating.bad { color: var(--alerte); }
+  .print-frequency { display: block; margin-top: 1mm; color: var(--gris); font-size: 8pt; font-weight: normal; }
   .print-photos-row td { padding: 2mm 3mm; }
   .print-photos { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 3mm; }
   .print-photos figure { display: inline-block; margin: 0; max-width: 48mm; break-inside: avoid; }
