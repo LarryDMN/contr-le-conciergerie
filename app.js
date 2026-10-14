@@ -2,10 +2,19 @@
 (() => {
   'use strict';
 
-  const config = window.CONCIERGERIE_CONFIG;
+  const baseConfig = window.CONCIERGERIE_CONFIG;
   const buildings = window.CONCIERGERIES;
-  const items = config.sections.flatMap(section => section.groups.flatMap(group => group.items));
-  const itemIds = new Set(items.map(item => item.id));
+  const templates = {
+    conciergerie: baseConfig,
+    bureaux: { ...baseConfig, sections: window.BUREAUX || [] }
+  };
+  const typeLabels = { conciergerie: 'Contrôle conciergerie', bureaux: 'Contrôle entretien de bureaux' };
+  const itemsFor = type => templates[type].sections.flatMap(section => section.groups.flatMap(group => group.items));
+  let activeType = 'conciergerie';
+  let view = 'home';
+  let config = templates[activeType];
+  let items = itemsFor(activeType);
+  let itemIds = new Set(items.map(item => item.id));
   const $ = selector => document.querySelector(selector);
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -23,6 +32,7 @@
 
   let database;
   const controls = new Map();
+  const archives = new Map();
   const dirty = new Set();
   const versions = new Map();
   let currentId;
@@ -31,15 +41,18 @@
   let pendingWrites = 0;
   let saveError = false;
   let actionBusy = false;
+  let pdfBusy = false;
+  let directoryHandle;
+  let previewURL;
   let noticeTimer;
   const photoJobs = new Set();
   const current = () => controls.get(currentId);
   const buildingName = record => record.buildingName || record.address ||
     (record.buildingId === undefined ? 'Contrôle sans adresse' : 'Immeuble à choisir');
   // null désigne un nouveau brouillon ; l'absence de champ désigne un ancien contrôle.
-  const needsBuilding = record => record.buildingId === null;
-  const ratedCount = record => items.filter(item => record.rows[item.id]?.rating).length;
-  const sortedControls = () => [...controls.values()].sort((a, b) =>
+  const needsBuilding = record => record.type === 'bureaux' ? !record.buildingName.trim() : record.buildingId === null;
+  const ratedCount = record => itemsFor(record.type).filter(item => record.rows[item.id]?.rating).length;
+  const sortedControls = (type = null) => [...controls.values()].filter(record => !type || record.type === type).sort((a, b) =>
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
 
   function notify(message, error = false, persistent = false) {
@@ -53,16 +66,32 @@
 
   function setStorageStatus() {
     const status = $('#storageStatus');
-    status.dataset.state = saveError ? 'error' : dirty.size || pendingWrites || photoJobs.size ? 'saving' : 'saved';
-    status.textContent = saveError ? 'Échec de sauvegarde — réessayez ou exportez' : photoJobs.size
+    status.dataset.state = saveError ? 'error' : dirty.size || pendingWrites || photoJobs.size || pdfBusy ? 'saving' : 'saved';
+    status.textContent = saveError ? 'Échec de sauvegarde — réessayez ou exportez' : pdfBusy ? 'Création du PDF…' : photoJobs.size
       ? 'Préparation des photos…' : dirty.size || pendingWrites ? 'Sauvegarde en cours…' : 'Enregistré sur cet appareil';
   }
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('conciergerie-controles', 1);
+      const request = indexedDB.open('conciergerie-controles', 2);
       request.onupgradeneeded = () => {
-        request.result.createObjectStore('controls', { keyPath: 'id' });
+        const db = request.result;
+        const store = db.objectStoreNames.contains('controls')
+          ? request.transaction.objectStore('controls') : db.createObjectStore('controls', { keyPath: 'id' });
+        if (!store.indexNames.contains('type')) store.createIndex('type', 'type');
+        // La migration conserve tous les champs et attribue réellement le type aux anciennes données.
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const entry = cursor.result;
+          if (!entry) return;
+          if (!entry.value.type) entry.update({ ...entry.value, type: 'conciergerie' });
+          entry.continue();
+        };
+        if (!db.objectStoreNames.contains('archives')) {
+          const archiveStore = db.createObjectStore('archives', { keyPath: 'controlId' });
+          archiveStore.createIndex('type', 'type');
+        }
+        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'name' });
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -71,14 +100,18 @@
   }
 
   // Attendre la transaction entière : une requête réussie seule ne garantit pas la sauvegarde.
-  function transaction(mode, callback) {
+  function transaction(mode, callback, storeNames = 'controls') {
     return new Promise((resolve, reject) => {
-      const tx = database.transaction('controls', mode);
+      const tx = database.transaction(storeNames, mode);
       let result;
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error || new Error('Le stockage est indisponible.'));
       tx.onabort = () => reject(tx.error || new Error('Sauvegarde interrompue.'));
-      try { result = callback(tx.objectStore('controls')); }
+      try {
+        const stores = Array.isArray(storeNames)
+          ? Object.fromEntries(storeNames.map(name => [name, tx.objectStore(name)])) : tx.objectStore(storeNames);
+        result = callback(stores);
+      }
       catch (error) { tx.abort(); reject(error); }
     });
   }
@@ -89,24 +122,33 @@
     request.result.forEach(record => controls.set(record.id, normalizeRecord(record)));
   }
 
+  async function readArchives() {
+    let request;
+    await transaction('readonly', store => { request = store.getAll(); }, 'archives');
+    request.result.forEach(archive => archives.set(archive.controlId, archive));
+  }
+
   const blankRow = () => ({ rating: null, remark: '', photos: [] });
   function normalizeRecord(record) {
+    record.type ??= 'conciergerie';
     // Aucun rapprochement automatique : les anciennes adresses restent intactes.
     record.buildingName ??= '';
     record.rows ||= {};
-    items.forEach(item => { record.rows[item.id] ||= blankRow(); });
+    itemsFor(record.type).forEach(item => { record.rows[item.id] ||= blankRow(); });
     record.comments ||= { text: '', photos: [] };
     return record;
   }
 
   function makeControl() {
     const timestamp = new Date().toISOString();
-    return normalizeRecord({ id: uid(), createdAt: timestamp, updatedAt: timestamp,
-      buildingId: null, buildingName: '', address: '', concierge: '', date: today(), rows: {},
+    return normalizeRecord({ id: uid(), type: activeType, createdAt: timestamp, updatedAt: timestamp,
+      ...(activeType === 'conciergerie' ? { buildingId: null } : {}),
+      buildingName: '', address: '', concierge: '', date: today(), rows: {},
       comments: { text: '', photos: [] } });
   }
 
   function markChanged(record = current()) {
+    delete record.completedAt;
     record.updatedAt = new Date().toISOString();
     versions.set(record.id, (versions.get(record.id) || 0) + 1);
     dirty.add(record.id);
@@ -161,16 +203,17 @@
   }
 
   function renderList() {
-    $('#controlList').innerHTML = sortedControls().map(record => `
+    $('#controlList').innerHTML = sortedControls(activeType).map(record => `
       <div class="saved-control ${record.id === currentId ? 'active' : ''}">
         <button type="button" class="open-control" data-open-control="${escapeHTML(record.id)}"
           ${record.id === currentId ? 'aria-current="true"' : ''}>
           <span class="control-date">${escapeHTML(displayDate(record.date))}</span>
           <span class="control-address">${escapeHTML(buildingName(record))}</span>
           <span class="control-meta">${escapeHTML(record.concierge || 'Concierge non renseigné')}
-            <span>${ratedCount(record)} / ${items.length}</span></span>
+            <span>${ratedCount(record)} / ${itemsFor(record.type).length}</span></span>
         </button>
-      </div>`).join('') || '<p class="list-empty">Aucun contrôle enregistré.</p>';
+      </div>`).join('') || '<p class="list-empty">Aucun contrôle enregistré dans cette section.</p>';
+    renderHome();
   }
 
   function photoButtons(rowId) {
@@ -210,7 +253,7 @@
           }).join('')}`).join('')}</div>
       </details>`).join('') + `
       <details class="inspection-section comments-section" open>
-        <summary><span class="section-heading"><span class="section-number">04</span>
+        <summary><span class="section-heading"><span class="section-number">${String(config.sections.length + 1).padStart(2, '0')}</span>
           <span class="section-title">COMMENTAIRES - REMARQUES</span></span></summary>
         <div class="section-body"><label class="remark-field" for="generalComments"><span>Remarques générales</span>
           <textarea id="generalComments" rows="4" placeholder="Observations complémentaires, travaux à prévoir…">${escapeHTML(record.comments.text)}</textarea></label>
@@ -267,6 +310,22 @@
 
   function renderEditor() {
     const record = current();
+    if (!record || !items.length) { renderPendingModel(); return; }
+    $('#officePlaceholder').hidden = true;
+    $('#controlForm').hidden = false;
+    $('#headerControl').hidden = view !== 'control';
+    $('#controlActions').hidden = view !== 'control';
+    $('#newControl').disabled = false;
+    $('#workflowTitle').textContent = typeLabels[activeType];
+    $('#workflowEyebrow').textContent = activeType === 'conciergerie' ? 'Modèle de contrôle des conciergeries' : 'Modèle de contrôle de l’entretien de bureaux';
+    $('#workflowDescription').textContent = 'Notez chaque élément, ajoutez vos remarques et documentez avec des photos.';
+    $('#buildingSelectField').hidden = activeType !== 'conciergerie';
+    $('#buildingNameField').hidden = activeType !== 'bureaux';
+    $('#buildingNameInput').value = record.buildingName;
+    $('#buildingNameInput').required = activeType === 'bureaux';
+    $('#address').readOnly = activeType === 'conciergerie';
+    $('#concierge').readOnly = activeType === 'conciergerie';
+    $('#responsibleLabel').textContent = activeType === 'conciergerie' ? 'Concierge' : 'Responsable';
     renderBuildingSelection();
     $('#address').value = record.address;
     $('#concierge').value = record.concierge;
@@ -285,7 +344,7 @@
       (missing ? `<option value="${escapeHTML(record.buildingId)}">${escapeHTML(buildingName(record))} (retiré de la liste)</option>` : '') +
       buildings.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
     select.value = record.buildingId || '';
-    select.required = !legacy;
+    select.required = activeType === 'conciergerie' && !legacy;
     $('#buildingHelp').textContent = legacy
       ? 'Contrôle antérieur : l’adresse et le concierge enregistrés sont conservés.'
       : missing ? 'Cet immeuble a été retiré de la liste. Les informations de ce contrôle sont conservées.'
@@ -294,13 +353,15 @@
     $('#inspectionFields').disabled = needsBuilding(record);
     $('#saveControl').disabled = needsBuilding(record);
     $('#printControl').disabled = needsBuilding(record);
+    $('#finishControl').disabled = needsBuilding(record);
   }
 
   function requireBuilding() {
     if (!needsBuilding(current())) return true;
-    $('#buildingSelect').reportValidity();
-    $('#buildingSelect').focus();
-    notify('Choisissez un immeuble avant de remplir ou d’imprimer ce contrôle.', true);
+    const field = activeType === 'conciergerie' ? $('#buildingSelect') : $('#buildingNameInput');
+    field.reportValidity();
+    field.focus();
+    notify('Renseignez l’immeuble avant de remplir ou d’imprimer ce contrôle.', true);
     return false;
   }
 
@@ -323,6 +384,7 @@
   }
 
   async function newControl() {
+    if (!items.length) { notify('Modèle à venir. Aucun contrôle ne peut être créé pour le moment.'); return; }
     if (currentId) await flushChanges();
     const record = makeControl();
     controls.set(record.id, record);
@@ -336,6 +398,7 @@
   async function switchControl(id) {
     if (!controls.has(id) || id === currentId) return;
     await flushChanges();
+    setType(controls.get(id).type);
     currentId = id;
     renderEditor();
   }
@@ -356,15 +419,16 @@
 
   async function deleteControl() {
     const record = current();
-    if (!window.confirm(`Supprimer définitivement le contrôle du ${displayDate(record.date)} ? Exportez-le d’abord si vous souhaitez le conserver.`)) return;
+    if (!window.confirm(`Supprimer définitivement le contrôle du ${displayDate(record.date)} ? Son PDF reste dans Dossiers. Exportez le JSON pour conserver ses données modifiables.`)) return;
     await flushChanges();
     await transaction('readwrite', store => store.delete(record.id));
     controls.delete(record.id);
     dirty.delete(record.id);
     versions.delete(record.id);
-    currentId = sortedControls()[0]?.id;
+    currentId = sortedControls(activeType)[0]?.id;
     if (currentId) renderEditor();
-    else await newControl();
+    else if (items.length) await newControl();
+    else renderPendingModel();
     notify('Contrôle supprimé.');
   }
 
@@ -449,8 +513,8 @@
     refreshDerived();
   }
 
-  function downloadJSON(records) {
-    const payload = { format: 'conciergerie-controles', version: 1, exportedAt: new Date().toISOString(), controls: records };
+  function downloadJSON(records, pdfArchives) {
+    const payload = { format: 'conciergerie-controles', version: 2, exportedAt: new Date().toISOString(), controls: records, archives: pdfArchives };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -465,8 +529,20 @@
     await Promise.all([...photoJobs]);
     // L'export reste utilisable en cas de quota dépassé afin de sauver les données en mémoire.
     try { await flushChanges(); } catch { /* L'indicateur continue de signaler l'échec local. */ }
-    downloadJSON(sortedControls().map(record => structuredClone(record)));
-    notify(`${controls.size} contrôle${controls.size > 1 ? 's' : ''} exporté${controls.size > 1 ? 's' : ''}, photos incluses.`);
+    const pdfArchives = await Promise.all([...archives.values()].map(async ({ blob, ...metadata }) => ({
+      ...metadata, pdfDataUrl: await blobToDataURL(blob)
+    })));
+    downloadJSON(sortedControls().map(record => structuredClone(record)), pdfArchives);
+    notify(`${controls.size} contrôle(s) et ${archives.size} PDF exportés, photos incluses.`);
+  }
+
+  function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
   }
 
   function validDate(date) {
@@ -478,8 +554,8 @@
   // Import strict et atomique : un fichier invalide ne modifie aucun contrôle existant.
   function validateImport(payload) {
     const invalid = () => { throw new Error('Fichier de sauvegarde invalide. Aucun contrôle n’a été importé.'); };
-    if (!payload || payload.format !== 'conciergerie-controles' || payload.version !== 1 ||
-      !Array.isArray(payload.controls) || !payload.controls.length) invalid();
+    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2].includes(payload.version) ||
+      !Array.isArray(payload.controls) || (payload.version === 2 && !Array.isArray(payload.archives))) invalid();
     const string = value => { if (typeof value !== 'string') invalid(); return value; };
     const photos = values => {
       if (!Array.isArray(values)) invalid();
@@ -492,10 +568,12 @@
       });
     };
     const ids = new Set();
-    return payload.controls.map(record => {
+    const records = payload.controls.map(record => {
       if (!record || typeof record.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(record.id) ||
         ids.has(record.id) || !validDate(record.date) || !record.rows || typeof record.rows !== 'object' ||
         Array.isArray(record.rows) || !record.comments) invalid();
+      if (!['conciergerie', 'bureaux'].includes(record.type ?? 'conciergerie')) invalid();
+      if (record.completedAt != null && (typeof record.completedAt !== 'string' || Number.isNaN(Date.parse(record.completedAt)))) invalid();
       // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
       if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
       if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
@@ -506,29 +584,69 @@
           !(row.rating === null || [1, 2, 3, 4].includes(row.rating))) invalid();
         rows[key] = { rating: row.rating, remark: string(row.remark), photos: photos(row.photos) };
       });
-      return normalizeRecord({ id: record.id, date: record.date, address: string(record.address),
+      return normalizeRecord({ id: record.id, type: record.type ?? 'conciergerie', date: record.date, address: string(record.address),
         ...(Object.hasOwn(record, 'buildingId') ? { buildingId: record.buildingId } : {}),
         buildingName: record.buildingName ?? '',
         concierge: string(record.concierge), createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
+        ...(record.completedAt ? { completedAt: record.completedAt } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
+    const archiveIds = new Set();
+    const pdfArchives = (payload.version === 2 ? payload.archives : []).map(archive => {
+      if (!archive || typeof archive.controlId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(archive.controlId) ||
+        archiveIds.has(archive.controlId) || !['conciergerie', 'bureaux'].includes(archive.type) || !validDate(archive.date) ||
+        typeof archive.filename !== 'string' || !archive.filename.endsWith('.pdf') || /[\\/\x00-\x1f]/.test(archive.filename) ||
+        typeof archive.generatedAt !== 'string' || Number.isNaN(Date.parse(archive.generatedAt)) ||
+        (archive.buildingId != null && typeof archive.buildingId !== 'string') ||
+        typeof archive.pdfDataUrl !== 'string' || !/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/.test(archive.pdfDataUrl)) invalid();
+      const owner = records.find(record => record.id === archive.controlId);
+      if (owner && owner.type !== archive.type) invalid();
+      archiveIds.add(archive.controlId);
+      let binary;
+      try { binary = atob(archive.pdfDataUrl.split(',')[1]); } catch { invalid(); }
+      if (!binary.startsWith('%PDF-') || !binary.slice(-2048).includes('%%EOF')) invalid();
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      return { controlId: archive.controlId, type: archive.type, date: archive.date,
+        buildingId: archive.buildingId ?? null, buildingName: string(archive.buildingName), address: string(archive.address),
+        filename: archive.filename, generatedAt: archive.generatedAt, blob: new Blob([bytes], { type: 'application/pdf' }) };
+    });
+    return { records, pdfArchives };
   }
 
   async function importControls(file) {
     let payload;
     try { payload = JSON.parse(await file.text()); }
     catch { throw new Error('Ce fichier ne contient pas une sauvegarde JSON valide.'); }
-    const records = validateImport(payload);
+    const { records, pdfArchives } = validateImport(payload);
     await flushChanges();
     let copied = 0;
+    const remapped = new Map();
     records.forEach(record => {
-      if (controls.has(record.id)) { record.id = uid(); copied += 1; }
+      const originalId = record.id;
+      if (controls.has(record.id) || archives.has(record.id)) { record.id = uid(); copied += 1; }
+      remapped.set(originalId, record.id);
     });
-    await transaction('readwrite', store => records.forEach(record => store.put(record)));
+    pdfArchives.forEach(archive => {
+      if (remapped.has(archive.controlId)) archive.controlId = remapped.get(archive.controlId);
+      else if (archives.has(archive.controlId) || controls.has(archive.controlId)) archive.controlId = uid();
+    });
+    await transaction('readwrite', stores => {
+      records.forEach(record => stores.controls.put(record));
+      pdfArchives.forEach(archive => stores.archives.put(archive));
+    }, ['controls', 'archives']);
     records.forEach(record => controls.set(record.id, record));
-    currentId = records[0].id;
-    renderEditor();
-    notify(`${records.length} contrôle${records.length > 1 ? 's' : ''} importé${records.length > 1 ? 's' : ''}.` +
+    pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
+    if (records.length) {
+      currentId = records[0].id;
+      setType(records[0].type);
+      showView('control');
+      renderEditor();
+    } else {
+      showView('folders');
+      renderFolders();
+    }
+    notify(`${records.length} contrôle(s) et ${pdfArchives.length} PDF importés.` +
       (copied ? ' Les contrôles déjà présents ont été conservés ; les doublons sont des copies.' : ''));
   }
 
@@ -539,12 +657,12 @@
 
   function renderPrintReport() {
     const record = current();
-    if (!record) return;
+    if (!record || view !== 'control' || !items.length) { $('#printReport').innerHTML = ''; return; }
     $('#printReport').innerHTML = `<header class="print-header"><img class="print-logo" src="logo-horizontal.png" alt="E. Blanco SA">
-      <h1>Modèle de contrôle des conciergeries</h1>
+      <h1>${record.type === 'bureaux' ? 'Modèle de contrôle de l’entretien de bureaux' : 'Modèle de contrôle des conciergeries'}</h1>
       <dl class="print-metadata">${record.buildingName ? `<div><dt>Immeuble</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
         <div><dt>Adresse de l’immeuble</dt><dd>${escapeHTML(record.address)}</dd></div>
-        <div><dt>Concierge</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
+        <div><dt>${record.type === 'bureaux' ? 'Responsable' : 'Concierge'}</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
         <div><dt>Date</dt><dd>${escapeHTML(displayDate(record.date))}</dd></div></dl>
       <p class="print-legend">1 = Très bon · 2 = Bon · 3 = Moyen · 4 = Mauvais</p>
       <p>Joindre une photo pour la note 4, ainsi que pour tous les dégâts et actes de vandalisme.</p></header>
@@ -558,26 +676,284 @@
                 <td class="print-remark">${escapeHTML(row.remark)}</td></tr>${row.photos.length
                   ? `<tr class="print-photos-row"><td colspan="6"><strong>${escapeHTML(item.label)}</strong>${printPhotos(row.photos)}</td></tr>` : ''}`;
             }).join('')}</tbody></table>`).join('')}</section>`).join('')}
-      <section class="print-comments"><h2 class="print-section-title">4. COMMENTAIRES - REMARQUES</h2>
+      <section class="print-comments"><h2 class="print-section-title">${config.sections.length + 1}. COMMENTAIRES - REMARQUES</h2>
         <p>${escapeHTML(record.comments.text || '—')}</p>${printPhotos(record.comments.photos)}</section>
       <footer class="print-footer">${escapeHTML(config.footer)}</footer>`;
   }
 
   async function printControl() {
-    if (!requireBuilding()) return;
-    await flushChanges();
-    renderPrintReport();
-    await Promise.all([...$('#printReport').querySelectorAll('img')].map(image => image.decode().catch(() => {})));
-    window.print();
+    await saveControl({ download: true });
+  }
+
+  function setType(type) {
+    activeType = type;
+    config = templates[type];
+    items = itemsFor(type);
+    itemIds = new Set(items.map(item => item.id));
+  }
+
+  function renderHome() {
+    const countLabel = count => `${count} contrôle${count > 1 ? 's' : ''}`;
+    $('#homeConciergeCount').textContent = countLabel(sortedControls('conciergerie').length);
+    $('#homeOfficeCount').textContent = countLabel(sortedControls('bureaux').length);
+    $('#homeArchiveCount').textContent = `${archives.size} PDF`;
+  }
+
+  function showView(nextView) {
+    view = nextView;
+    $('#homeView').hidden = view !== 'home';
+    $('#controlView').hidden = view !== 'control';
+    $('#foldersView').hidden = view !== 'folders';
+    $('.skip-link').href = view === 'home' ? '#homeView' : view === 'folders' ? '#foldersView' : '#main';
+    $('#headerControl').hidden = view !== 'control' || !current() || !items.length;
+    $('#controlActions').hidden = view !== 'control' || !current() || !items.length;
+    document.body.dataset.view = view;
+    renderHome();
+    window.scrollTo(0, 0);
+  }
+
+  async function openType(type) {
+    if (currentId) await flushChanges();
+    setType(type);
+    currentId = sortedControls(type)[0]?.id;
+    showView('control');
+    if (currentId) renderEditor();
+    else if (items.length) await newControl();
+    else renderPendingModel();
+  }
+
+  function renderPendingModel() {
+    $('#sections').replaceChildren();
+    $('#workflowTitle').textContent = typeLabels[activeType];
+    $('#workflowEyebrow').textContent = 'Contrôles enregistrés';
+    $('#workflowDescription').textContent = 'Le modèle de contrôle de cette section n’est pas encore disponible.';
+    $('#officePlaceholder').hidden = false;
+    $('#controlForm').hidden = true;
+    $('#headerControl').hidden = true;
+    $('#controlActions').hidden = true;
+    $('#newControl').disabled = true;
+    renderList();
+  }
+
+  async function goHome() {
+    if (currentId) await flushChanges();
+    showView('home');
+  }
+
+  async function openFolders() {
+    if (currentId) await flushChanges();
+    showView('folders');
+    renderFolders();
+    await updateDirectoryStatus();
+  }
+
+  const searchable = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  function renderFolders() {
+    const query = searchable($('#folderSearch').value.trim());
+    const filtered = [...archives.values()].filter(archive => searchable([
+      archive.filename, archive.buildingName, archive.address, archive.date,
+      displayDate(archive.date), typeLabels[archive.type]
+    ].join(' ')).includes(query)).sort((a, b) => b.date.localeCompare(a.date) || b.generatedAt.localeCompare(a.generatedAt));
+    $('#foldersEmpty').hidden = filtered.length > 0;
+    $('#foldersEmpty').textContent = archives.size ? 'Aucun PDF ne correspond à cette recherche.' : 'Aucun PDF archivé. Enregistrez ou terminez un contrôle pour créer son PDF.';
+    $('#archiveTree').innerHTML = Object.keys(typeLabels).map(type => {
+      const entries = filtered.filter(archive => archive.type === type);
+      if (!entries.length) return '';
+      const byBuilding = new Map();
+      entries.forEach(archive => {
+        const key = archive.buildingId || `${archive.buildingName}\u0000${archive.address}`;
+        if (!byBuilding.has(key)) byBuilding.set(key, []);
+        byBuilding.get(key).push(archive);
+      });
+      return `<details class="folder-type" open><summary><span class="folder-label">${escapeHTML(typeLabels[type])}</span><span class="folder-count">${entries.length} PDF</span></summary>
+        ${[...byBuilding.values()].map(buildingArchives => `<details class="folder-building" open><summary><span class="folder-label">${escapeHTML(buildingArchives[0].buildingName || buildingArchives[0].address || 'Sans immeuble')}</span><span class="folder-count">${buildingArchives.length}</span></summary>
+          ${[...new Set(buildingArchives.map(archive => archive.date.slice(0, 4)))].sort().reverse().map(year => `<details class="folder-year" open><summary><span class="folder-label">${year}</span></summary>
+            ${buildingArchives.filter(archive => archive.date.startsWith(year)).map(archive => `<article class="archive-card"><div>
+              <h3 class="archive-filename">${escapeHTML(archive.filename)}</h3><p class="archive-meta">Contrôle du ${escapeHTML(displayDate(archive.date))}</p>
+              <p class="archive-meta">PDF actualisé le ${escapeHTML(new Intl.DateTimeFormat('fr-CH', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(archive.generatedAt)))}</p></div>
+              <div class="archive-actions"><button type="button" class="button button-secondary" data-preview-archive="${escapeHTML(archive.controlId)}">Aperçu</button>
+                <button type="button" class="button button-primary" data-download-archive="${escapeHTML(archive.controlId)}">Télécharger</button>
+                <button type="button" class="button button-secondary" data-delete-archive="${escapeHTML(archive.controlId)}">Supprimer</button></div></article>`).join('')}</details>`).join('')}
+        </details>`).join('')}</details>`;
+    }).join('');
+    renderHome();
+  }
+
+  function downloadPDF(archive) {
+    const url = URL.createObjectURL(archive.blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = archive.filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  function previewArchive(id) {
+    const archive = archives.get(id);
+    if (!archive) return;
+    if (previewURL) URL.revokeObjectURL(previewURL);
+    previewURL = URL.createObjectURL(archive.blob);
+    $('#archiveCaption').textContent = `${archive.filename} — ${displayDate(archive.date)}`;
+    $('#archivePreview').src = previewURL;
+    $('#archivePreviewDownload').href = previewURL;
+    $('#archivePreviewDownload').download = archive.filename;
+    $('#archiveDialog').showModal();
+  }
+
+  async function deleteArchive(id) {
+    if (!archives.has(id) || !window.confirm('Supprimer ce PDF de Dossiers ? Le contrôle, ses photos et les copies déjà téléchargées restent conservés.')) return;
+    await transaction('readwrite', store => store.delete(id), 'archives');
+    archives.delete(id);
+    renderFolders();
+    notify('PDF supprimé de Dossiers.');
+  }
+
+  function supportsDirectory() {
+    return typeof window.showDirectoryPicker === 'function' &&
+      !navigator.userAgentData?.mobile && !/Android|iPhone|iPad/i.test(navigator.userAgent);
+  }
+
+  async function updateDirectoryStatus() {
+    $('#chooseDirectory').hidden = !supportsDirectory();
+    $('#authorizeDirectory').hidden = true;
+    if (!supportsDirectory()) {
+      $('#directoryStatus').textContent = 'Les PDF restent disponibles dans Dossiers et peuvent être téléchargés sur cet appareil.';
+      return;
+    }
+    if (!directoryHandle) {
+      $('#directoryStatus').textContent = 'Dossier ordinateur facultatif. Les PDF sont toujours archivés dans ce navigateur.';
+      return;
+    }
+    let granted = false;
+    try { granted = await directoryHandle.queryPermission({ mode: 'readwrite' }) === 'granted'; } catch { /* Le téléchargement reste disponible. */ }
+    $('#authorizeDirectory').hidden = granted;
+    $('#directoryStatus').textContent = granted ? `Copie automatique activée : ${directoryHandle.name || 'dossier choisi'}.`
+      : 'Dossier mémorisé : autorisez à nouveau son accès pour reprendre la copie automatique.';
+  }
+
+  async function readDirectory() {
+    let request;
+    await transaction('readonly', store => { request = store.get('pdf-directory'); }, 'settings');
+    directoryHandle = request.result?.handle;
+    await updateDirectoryStatus();
+  }
+
+  async function chooseDirectory() {
+    if (!supportsDirectory()) return;
+    try {
+      // Appelé directement depuis le clic pour conserver l'activation utilisateur requise.
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      await transaction('readwrite', store => store.put({ name: 'pdf-directory', handle }), 'settings');
+      directoryHandle = handle;
+      await updateDirectoryStatus();
+      notify('Dossier mémorisé. Les prochains PDF enregistrés y seront aussi copiés.');
+    } catch (error) {
+      if (error.name !== 'AbortError') notify('Le dossier n’a pas pu être choisi ou mémorisé. Les PDF restent disponibles dans Dossiers.', true);
+    }
+  }
+
+  async function directoryPermission(interactive) {
+    if (!directoryHandle || !supportsDirectory()) return false;
+    try {
+      let permission = await directoryHandle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted' && interactive) permission = await directoryHandle.requestPermission({ mode: 'readwrite' });
+      await updateDirectoryStatus();
+      return permission === 'granted';
+    } catch { await updateDirectoryStatus(); return false; }
+  }
+
+  async function writeDirectoryPDF(archive, previous) {
+    // Un sous-dossier par contrôle évite qu'un contrôle dupliqué écrase le PDF de l'original.
+    const directory = await directoryHandle.getDirectoryHandle(archive.controlId, { create: true });
+    const file = await directory.getFileHandle(archive.filename, { create: true });
+    const writable = await file.createWritable();
+    try { await writable.write(archive.blob); await writable.close(); }
+    catch (error) { await writable.abort().catch(() => {}); throw error; }
+    if (previous && previous.filename !== archive.filename) {
+      try { await directory.removeEntry(previous.filename); }
+      catch (error) { if (error.name !== 'NotFoundError') throw error; }
+    }
+  }
+
+  async function saveControl({ finish = false, download = false } = {}) {
+    if (!current() || !items.length || !requireBuilding()) return;
+    // Redemander l'autorisation avant la génération longue, pendant le geste utilisateur.
+    const canWrite = await directoryPermission(true);
+    const editor = $('#controlForm');
+    editor.inert = true;
+    pdfBusy = true;
+    setStorageStatus();
+    try {
+      await flushChanges();
+      const record = structuredClone(current());
+      const timestamp = new Date().toISOString();
+      record.updatedAt = timestamp;
+      if (finish) record.completedAt = timestamp;
+      const blob = await window.CONTROL_PDF.generate(record, templates[record.type]);
+      const previous = archives.get(record.id);
+      const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
+        buildingName: record.buildingName, address: record.address, date: record.date,
+        filename: window.CONTROL_PDF.filename(record), generatedAt: timestamp, blob };
+      // Le cliché du contrôle et son PDF sont enregistrés ensemble, ou pas du tout.
+      await transaction('readwrite', stores => { stores.controls.put(record); stores.archives.put(archive); }, ['controls', 'archives']);
+      controls.set(record.id, record);
+      archives.set(record.id, archive);
+      versions.set(record.id, (versions.get(record.id) || 0) + 1);
+      dirty.delete(record.id);
+      saveError = false;
+      renderHome();
+      renderList();
+      if (download) downloadPDF(archive);
+      let copied = false;
+      if (canWrite) {
+        try { await writeDirectoryPDF(archive, previous); copied = true; }
+        catch { await updateDirectoryStatus(); notify('PDF archivé dans Dossiers, mais la copie ordinateur a échoué. Vérifiez le dossier et son autorisation.', true); return; }
+      }
+      notify(`${finish ? 'Contrôle terminé' : 'Contrôle enregistré'} : PDF actualisé dans Dossiers${copied ? ' et copié sur ordinateur' : ''}.`);
+    } catch (error) {
+      throw new Error(error.name === 'QuotaExceededError'
+        ? 'Stockage insuffisant pour le PDF. Les données du contrôle sont conservées ; exportez-les et libérez de la place dans Dossiers.'
+        : 'Le PDF n’a pas pu être archivé. Les données du contrôle restent conservées. Réessayez.');
+    } finally {
+      editor.inert = false;
+      pdfBusy = false;
+      setStorageStatus();
+    }
   }
 
   function bindEvents() {
-    $('#newControl').addEventListener('click', () => perform(newControl));
-    $('#saveControl').addEventListener('click', () => perform(async () => {
-      if (!requireBuilding()) return;
-      await flushChanges();
-      notify('Contrôle enregistré sur cet appareil.');
+    document.querySelectorAll('[data-open-type]').forEach(button => button.addEventListener('click', () => perform(() => openType(button.dataset.openType))));
+    $('#homeButton').addEventListener('click', () => perform(goHome));
+    $('.brand').addEventListener('click', event => { event.preventDefault(); perform(goHome); });
+    $('#openFolders').addEventListener('click', () => perform(openFolders));
+    $('#homeExport').addEventListener('click', () => perform(exportControls));
+    $('#homeImport').addEventListener('click', () => $('#importFile').click());
+    $('#folderSearch').addEventListener('input', renderFolders);
+    $('#chooseDirectory').addEventListener('click', () => perform(chooseDirectory));
+    $('#authorizeDirectory').addEventListener('click', () => perform(async () => {
+      if (await directoryPermission(true)) notify('Accès au dossier autorisé.');
+      else notify('Accès non autorisé. Les PDF restent téléchargeables dans Dossiers.', true);
     }));
+    $('#archiveTree').addEventListener('click', event => {
+      const download = event.target.closest('[data-download-archive]');
+      if (download) { downloadPDF(archives.get(download.dataset.downloadArchive)); return; }
+      const preview = event.target.closest('[data-preview-archive]');
+      if (preview) { previewArchive(preview.dataset.previewArchive); return; }
+      const remove = event.target.closest('[data-delete-archive]');
+      if (remove) perform(() => deleteArchive(remove.dataset.deleteArchive));
+    });
+    $('#closeArchive').addEventListener('click', () => $('#archiveDialog').close());
+    $('#archiveDialog').addEventListener('close', () => {
+      $('#archivePreview').removeAttribute('src');
+      $('#archivePreviewDownload').removeAttribute('href');
+      if (previewURL) URL.revokeObjectURL(previewURL);
+      previewURL = undefined;
+    });
+    $('#newControl').addEventListener('click', () => perform(newControl));
+    $('#saveControl').addEventListener('click', () => perform(() => saveControl()));
+    $('#finishControl').addEventListener('click', () => perform(() => saveControl({ finish: true })));
     $('#duplicateControl').addEventListener('click', () => perform(duplicateControl));
     $('#deleteControl').addEventListener('click', () => perform(deleteControl));
     $('#printControl').addEventListener('click', () => perform(printControl));
@@ -593,6 +969,13 @@
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
     $('#buildingSelect').addEventListener('change', chooseBuilding);
+    ['buildingNameInput', 'address', 'concierge'].forEach(id => $(`#${id}`).addEventListener('input', event => {
+      if (activeType !== 'bureaux' || !current()) return;
+      current()[id === 'buildingNameInput' ? 'buildingName' : id] = event.target.value;
+      markChanged();
+      renderBuildingSelection();
+      refreshDerived();
+    }));
     ['controlDate'].forEach(id => {
       $(`#${id}`).addEventListener('input', event => {
         if (id === 'controlDate' && !validDate(event.target.value)) return;
@@ -637,7 +1020,7 @@
     $('#photoDialog').addEventListener('click', event => { if (event.target === $('#photoDialog')) $('#photoDialog').close(); });
     window.addEventListener('beforeprint', renderPrintReport);
     window.addEventListener('beforeunload', event => {
-      if (dirty.size || pendingWrites || photoJobs.size) { event.preventDefault(); event.returnValue = ''; }
+      if (dirty.size || pendingWrites || photoJobs.size || pdfBusy) { event.preventDefault(); event.returnValue = ''; }
     });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') persistChanges().catch(() => {});
@@ -708,10 +1091,11 @@
         notify('Le stockage a été mis à jour dans un autre onglet. Rechargez cette page.', true, true);
       };
       await readControls();
+      await readArchives();
+      await readDirectory();
       bindEvents();
-      currentId = sortedControls()[0]?.id;
-      if (currentId) renderEditor();
-      else await newControl();
+      showView('home');
+      setStorageStatus();
       setupOffline();
     } catch (error) {
       console.error('Initialisation impossible :', error.name);

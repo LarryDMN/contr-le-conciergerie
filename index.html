@@ -4,20 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0078D0">
-    <meta name="description" content="Contrôle de conciergerie sur place : notes, remarques et photos, enregistrées sur votre appareil.">
-    <title>Contrôle des conciergeries</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
+    <title>Contrôles et dossiers — E. Blanco SA</title>
+    <link rel="stylesheet" href="style.css?v=3">
     <script src="config.js" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="app.js?v=2" defer></script>
+    <script src="data/bureaux.js" defer></script>
+    <script src="vendor/jspdf.umd.min.js" defer></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
+    <script src="pdf.js" defer></script>
+    <script src="app.js?v=3" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Aller au contrôle</a>
+    <a class="skip-link" href="#homeView">Aller au contenu</a>
     <header class="app-header">
-      <a class="brand" href="#main" aria-label="Contrôle des conciergeries, aller au formulaire">
-        <img class="brand-logo" src="logo-horizontal.png" alt="E. Blanco SA" width="2107" height="302">
-      </a>
-      <div class="header-control">
+      <div class="header-top">
+        <a class="brand" href="#/" aria-label="E. Blanco SA, retour à l’accueil">
+          <img class="brand-logo" src="logo-horizontal.png" alt="E. Blanco SA" width="2107" height="302">
+        </a>
+        <button id="homeButton" type="button" class="button button-quiet">Accueil</button>
+      </div>
+      <div id="headerControl" class="header-control" hidden>
         <p id="selectedBuildingName" class="selected-building-name">Choisir un immeuble</p>
         <div class="progress-block"><div class="progress-label"><strong>Progression</strong><span id="progressText" aria-live="polite">0 / 30 lignes notées</span></div><progress id="progressBar" value="0" max="30" aria-label="Nombre de lignes notées">0 / 30</progress></div>
       </div>
@@ -27,7 +34,36 @@
       </div>
     </header>
 
-    <div class="app-layout">
+    <main id="homeView" class="home-view" tabindex="-1">
+      <div class="page-heading home-heading">
+        <p class="eyebrow">Votre espace de contrôle</p>
+        <h1>Une visite, un contrôle, un dossier.</h1>
+        <p class="page-description">Choisissez votre activité pour retrouver vos contrôles et commencer une visite.</p>
+      </div>
+      <div class="home-cards" aria-label="Choisir un type de contrôle">
+        <button type="button" class="home-card" data-open-type="conciergerie">
+          <span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 28V9l11-5 11 5v19M2 28h28M13 28v-7h6v7M10 12h2m8 0h2m-12 5h2m8 0h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="home-card-content"><span class="home-card-title">Contrôle conciergerie</span><span class="home-card-description">Immeubles, entretien intérieur et extérieur.</span><span id="homeConciergeCount" class="home-card-count">0 contrôle enregistré</span></span>
+          <span class="home-card-arrow" aria-hidden="true">→</span>
+        </button>
+        <button type="button" class="home-card" data-open-type="bureaux">
+          <span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 27V5h22v22M2 27h28M10 10h3m6 0h3m-12 6h3m6 0h3m-9 11v-6h6v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="home-card-content"><span class="home-card-title">Contrôle entretien de bureaux</span><span class="home-card-description">Modèle à venir.</span><span id="homeOfficeCount" class="home-card-count">0 contrôle enregistré</span></span>
+          <span class="home-card-arrow" aria-hidden="true">→</span>
+        </button>
+      </div>
+      <section class="home-documents panel" aria-labelledby="homeDocumentsTitle">
+        <div class="home-documents-heading"><div><p class="eyebrow">Les PDF de vos visites</p><h2 id="homeDocumentsTitle">Dossiers</h2><p class="page-description">Retrouvez vos documents par type, immeuble et année.</p></div><span id="homeArchiveCount" class="summary-count" aria-label="Nombre de PDF archivés">0</span></div>
+        <button id="openFolders" type="button" class="button button-primary button-full">Ouvrir les dossiers <span aria-hidden="true">→</span></button>
+      </section>
+      <section class="home-backup" aria-labelledby="homeBackupTitle">
+        <h2 id="homeBackupTitle">Sauvegarde de l’appareil</h2>
+        <p>Les contrôles, photos et PDF restent sur cet appareil. Exportez une copie pour les conserver ou les transférer.</p>
+        <div class="home-backup-actions"><button id="homeExport" type="button" class="button button-secondary">Exporter toutes les données</button><button id="homeImport" type="button" class="button button-secondary">Importer une sauvegarde</button></div>
+      </section>
+    </main>
+
+    <div id="controlView" class="app-layout" hidden>
       <aside class="sidebar" aria-label="Contrôles enregistrés">
         <div class="sidebar-heading"><p class="eyebrow">Votre espace de travail</p><h2>Mes contrôles</h2></div>
         <button id="newControl" type="button" class="button button-primary button-full">
@@ -39,22 +75,25 @@
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Importer
           </button>
-          <input id="importFile" type="file" accept="application/json,.json" hidden>
           <div class="local-note"><span class="local-note-icon" aria-hidden="true">⌂</span><p>Vos données restent sur cet appareil. Exportez régulièrement vos contrôles pour les conserver.</p></div>
         </div>
       </aside>
 
       <main id="main" class="main-content" tabindex="-1">
         <div class="page-heading">
-          <div><p class="eyebrow">Modèle de contrôle des conciergeries</p><h1>Contrôle de l’immeuble</h1><p class="page-description">Notez chaque élément, ajoutez vos remarques et documentez avec des photos.</p></div>
+          <div><p id="workflowEyebrow" class="eyebrow">Modèle de contrôle des conciergeries</p><h1 id="workflowTitle">Contrôle de l’immeuble</h1><p id="workflowDescription" class="page-description">Notez chaque élément, ajoutez vos remarques et documentez avec des photos.</p></div>
         </div>
 
+        <section id="officePlaceholder" class="office-placeholder panel" aria-labelledby="officePlaceholderTitle" hidden><span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 27V5h22v22M2 27h28M10 10h3m6 0h3m-12 6h3m6 0h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span><h2 id="officePlaceholderTitle">Modèle à venir</h2><p>Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.</p></section>
+
+        <div id="controlForm">
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">
           <div class="panel-heading"><h2 id="controlHeaderTitle">Informations du contrôle</h2></div>
           <div class="header-fields">
-            <label class="form-field building-field" for="buildingSelect"><span>Immeuble <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse et le concierge sont remplis automatiquement.</span></label>
+            <label id="buildingSelectField" class="form-field building-field" for="buildingSelect"><span>Immeuble <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse et le concierge sont remplis automatiquement.</span></label>
+            <label id="buildingNameField" class="form-field building-field" for="buildingNameInput" hidden><span>Nom du site <span class="required-label">(obligatoire)</span></span><input id="buildingNameInput" type="text" autocomplete="organization" placeholder="Nom du site"></label>
             <label class="form-field address-field" for="address"><span>Adresse de l’immeuble</span><input id="address" type="text" autocomplete="street-address" readonly placeholder="Adresse de l’immeuble"></label>
-            <label class="form-field" for="concierge"><span>Concierge</span><input id="concierge" type="text" autocomplete="name" readonly placeholder="Non renseigné"></label>
+            <label class="form-field" for="concierge"><span id="responsibleLabel">Concierge</span><input id="concierge" type="text" autocomplete="name" readonly placeholder="Non renseigné"></label>
             <label class="form-field" for="controlDate"><span>Date du contrôle</span><input id="controlDate" type="date"></label>
           </div>
           <div class="control-actions" aria-label="Actions sur le contrôle actuel">
@@ -86,13 +125,26 @@
           <div class="panel-heading"><div><p class="eyebrow">Points à suivre</p><h2 id="summaryTitle">Résumé du contrôle</h2></div><span id="summaryCount" class="summary-count">0</span></div>
           <p class="summary-description">Les éléments notés 3 ou 4 apparaissent ici avec leurs remarques et leurs photos.</p>
           <div id="summaryContent"><p class="summary-empty">Aucun point à suivre pour le moment.</p></div>
+          <div class="finish-control"><button id="finishControl" type="button" class="button button-primary button-full">Terminer le contrôle</button><p>Enregistre le contrôle et son PDF dans les dossiers.</p></div>
         </section>
         </fieldset>
         <p class="page-footer">Sauvegarde automatique sur cet appareil · Pensez à exporter vos données</p>
+        </div>
       </main>
     </div>
 
-    <nav class="bottom-actions" aria-label="Enregistrer et imprimer le contrôle">
+    <main id="foldersView" class="folders-view" tabindex="-1" hidden>
+      <div class="page-heading"><p class="eyebrow">Vos documents enregistrés</p><h1>Dossiers</h1><p class="page-description">Les PDF sont classés par type, immeuble et année. Chaque enregistrement remplace le PDF précédent du même contrôle.</p></div>
+      <section class="folders-tools panel" aria-label="Rechercher et choisir un dossier de sauvegarde">
+        <label class="form-field" for="folderSearch"><span>Rechercher un PDF</span><input id="folderSearch" type="search" placeholder="Immeuble, année ou nom du fichier…" autocomplete="off"></label>
+        <div class="directory-actions"><button id="chooseDirectory" type="button" class="button button-secondary" hidden>Choisir le dossier de sauvegarde</button><button id="authorizeDirectory" type="button" class="button button-secondary" hidden>Réautoriser le dossier</button></div>
+        <p id="directoryStatus" class="directory-status" role="status"></p>
+      </section>
+      <p id="foldersEmpty" class="folders-empty">Aucun PDF enregistré. Ouvrez un contrôle et choisissez « Enregistrer » pour créer son dossier.</p>
+      <div id="archiveTree" class="archive-tree" aria-label="PDF par type, immeuble et année"></div>
+    </main>
+
+    <nav id="controlActions" class="bottom-actions" aria-label="Enregistrer et générer le PDF du contrôle" hidden>
       <button id="saveControl" type="button" class="button button-secondary">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v6h9V3M7 21v-8h10v8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Enregistrer
@@ -103,10 +155,17 @@
       </button>
     </nav>
 
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     <dialog id="photoDialog" class="photo-dialog" aria-labelledby="photoCaption">
       <div class="photo-dialog-header"><h2 id="photoCaption">Photo du contrôle</h2><button id="closePhoto" type="button" class="button button-secondary" aria-label="Fermer la photo">Fermer <span aria-hidden="true">×</span></button></div>
       <img id="fullPhoto" alt="Photo jointe au contrôle">
+    </dialog>
+    <dialog id="archiveDialog" class="archive-dialog" aria-labelledby="archiveCaption">
+      <div class="photo-dialog-header"><h2 id="archiveCaption">Aperçu du PDF</h2><button id="closeArchive" type="button" class="button button-secondary" aria-label="Fermer l’aperçu du PDF">Fermer <span aria-hidden="true">×</span></button></div>
+      <iframe id="archivePreview" title="Aperçu du PDF"></iframe>
+      <p class="archive-preview-help">Si votre navigateur n’affiche pas l’aperçu, téléchargez le PDF pour l’ouvrir.</p>
+      <a id="archivePreviewDownload" class="button button-primary button-full" download>Télécharger le PDF</a>
     </dialog>
     <section id="printReport" aria-label="Document imprimable"></section>
     <noscript><div class="noscript-message">Activez JavaScript pour créer et enregistrer vos contrôles sur cet appareil.</div></noscript>

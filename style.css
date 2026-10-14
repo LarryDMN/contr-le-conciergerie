@@ -42,8 +42,10 @@ svg { flex: 0 0 auto; }
 .skip-link { position: fixed; z-index: 100; top: 10px; left: 10px; min-height: 44px; padding: 12px 18px; color: var(--blanc); background: var(--bleu); border-radius: 8px; transform: translateY(-180%); }
 .skip-link:focus { transform: none; }
 .app-header { position: fixed; z-index: 20; inset: 0 0 auto; display: grid; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: var(--blanc); border-bottom: 1px solid var(--bordure); box-shadow: var(--ombre); }
-.brand { display: inline-flex; align-items: center; min-width: 0; min-height: 44px; width: fit-content; max-width: 100%; text-decoration: none; }
-.brand-logo { display: block; width: auto; height: 40px; max-width: 100%; object-fit: contain; }
+.header-top { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: 10px; }
+.header-top > .button { flex-shrink: 0; padding-right: 10px; padding-left: 10px; }
+.brand { display: inline-flex; align-items: center; min-width: 0; min-height: 44px; width: 280px; max-width: calc(100% - 85px); text-decoration: none; }
+.brand-logo { display: block; width: 100%; height: 40px; max-width: 100%; object-fit: contain; object-position: left center; }
 .header-control { min-width: 0; }
 .selected-building-name { font-size: 15px; font-weight: 750; line-height: 1.3; overflow-wrap: anywhere; }
 .progress-block { display: flex; flex-direction: column; gap: 4px; margin-top: 5px; }
@@ -181,11 +183,78 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 .page-footer { padding: 24px 0 7px; color: var(--gris); text-align: center; font-size: 11px; }
 .loading-message { padding: 25px; text-align: center; color: var(--gris); }
 
+/* L’accueil sépare les activités et donne accès à la sauvegarde complète. */
+.home-view, .folders-view { width: 100%; max-width: 1080px; margin: 0 auto; padding: 30px 12px 28px; }
+.home-heading { margin-bottom: 24px; }
+.home-heading h1 { max-width: 620px; }
+.home-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.home-card { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; min-width: 0; min-height: 178px; padding: 22px 16px; text-align: left; color: var(--anthracite); background: var(--blanc); border: 1px solid var(--bordure); border-radius: 14px; box-shadow: var(--ombre); }
+.home-card:hover { background: var(--bleu-clair); border-color: var(--bleu); }
+.home-card-icon { display: grid; place-items: center; width: 44px; height: 44px; color: var(--bleu); background: var(--bleu-clair); border-radius: 11px; }
+.home-card-icon svg { width: 30px; height: 30px; }
+.home-card-content { display: flex; flex-direction: column; min-width: 0; gap: 8px; padding-right: 8px; }
+.home-card-title { font-size: 19px; font-weight: 750; line-height: 1.3; overflow-wrap: anywhere; }
+.home-card-description { font-size: 12px; line-height: 1.6; color: var(--gris); }
+.home-card-count { width: fit-content; max-width: 100%; margin-top: 4px; padding: 4px 8px; border-radius: 20px; color: var(--bleu); background: var(--bleu-clair); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.home-card-arrow { position: absolute; right: 16px; bottom: 15px; color: var(--bleu); font-size: 20px; }
+.home-documents { margin-top: 20px; padding: 20px 16px; }
+.home-documents-heading { display: flex; justify-content: space-between; align-items: flex-start; min-width: 0; gap: 16px; margin-bottom: 17px; }
+.home-documents-heading > div { min-width: 0; }
+.home-documents h2 { margin-top: 5px; font-size: 21px; line-height: 1.3; }
+.home-documents .summary-count { flex-shrink: 0; }
+.home-documents .page-description { margin-top: 6px; }
+.home-backup { margin: 28px 3px 0; }
+.home-backup h2 { font-size: 15px; }
+.home-backup p { max-width: 700px; margin-top: 8px; font-size: 12px; color: var(--gris); line-height: 1.7; }
+.home-backup-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+.home-backup-actions > .button { flex: 1 1 230px; }
+.office-placeholder { padding: 26px 20px; }
+.office-placeholder h2 { margin-top: 18px; font-size: 22px; }
+.office-placeholder p { max-width: 600px; margin-top: 10px; color: var(--gris); font-size: 13px; line-height: 1.7; }
+.finish-control { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--bordure); }
+.finish-control p { margin-top: 8px; text-align: center; color: var(--gris); font-size: 11px; }
+
+/* Les archives restent lisibles au pouce, même avec un nom de fichier long. */
+.folders-tools { padding: 18px 14px; margin-bottom: 22px; }
+.directory-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.directory-actions:has(> [hidden]:only-child), .directory-actions:empty { display: none; }
+.directory-actions .button { max-width: 100%; overflow-wrap: anywhere; }
+.directory-status { margin-top: 10px; color: var(--gris); font-size: 12px; overflow-wrap: anywhere; }
+.directory-status:empty { display: none; }
+.folders-empty { padding: 25px 18px; background: var(--blanc); color: var(--gris); border: 1px dashed var(--bordure); border-radius: 12px; font-size: 13px; line-height: 1.7; }
+.archive-tree { display: grid; gap: 14px; min-width: 0; }
+.folder-type { min-width: 0; background: var(--blanc); border: 1px solid var(--bordure); border-radius: 12px; overflow: hidden; }
+.folder-type > summary, .folder-building > summary, .folder-year > summary { display: flex; align-items: center; gap: 9px; min-height: 48px; min-width: 0; padding: 12px; list-style: none; cursor: pointer; color: var(--anthracite); overflow-wrap: anywhere; }
+.folder-type > summary::-webkit-details-marker, .folder-building > summary::-webkit-details-marker, .folder-year > summary::-webkit-details-marker { display: none; }
+.folder-type > summary::before, .folder-building > summary::before, .folder-year > summary::before { content: ""; flex-shrink: 0; width: 7px; height: 7px; margin-right: 2px; border: solid var(--anthracite); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); }
+.folder-type[open] > summary::before, .folder-building[open] > summary::before, .folder-year[open] > summary::before { transform: rotate(45deg); }
+.folder-type > summary { background: var(--bleu-clair); font-size: 15px; font-weight: 700; }
+.folder-building { min-width: 0; margin: 8px; border: 1px solid var(--bordure); border-radius: 8px; }
+.folder-building > summary { font-size: 13px; font-weight: 650; }
+.folder-year { min-width: 0; padding: 0 6px 7px; border-top: 1px solid var(--bordure); }
+.folder-year > summary { padding-right: 6px; padding-left: 6px; font-size: 12px; font-weight: 600; }
+.folder-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.folder-count { flex-shrink: 0; margin-left: auto; padding: 3px 7px; background: var(--gris-clair); border-radius: 20px; color: var(--gris); font-size: 11px; font-weight: 500; }
+.archive-card { display: grid; gap: 13px; min-width: 0; margin: 0 0 8px; padding: 14px 9px; border: 1px solid var(--bordure); border-radius: 8px; background: var(--fond); }
+.archive-card:last-child { margin-bottom: 0; }
+.archive-card > div { min-width: 0; }
+.archive-filename { color: var(--anthracite); font-size: 13px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
+.archive-meta { margin-top: 5px; color: var(--gris); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.archive-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.archive-actions .button { flex: 1 1 82px; min-width: 0; padding: 10px 6px; font-size: 11px; }
+.archive-dialog { width: min(960px, calc(100vw - 20px)); max-height: calc(100dvh - 24px); padding: 12px; border: 1px solid var(--bordure); border-radius: 14px; background: var(--blanc); }
+.archive-dialog::backdrop { background: color-mix(in srgb, var(--anthracite) 72%, transparent); }
+.archive-dialog h2 { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.archive-dialog iframe { display: block; width: 100%; min-height: 200px; height: min(65dvh, 760px); border: 1px solid var(--bordure); border-radius: 8px; background: var(--fond); }
+.archive-preview-help { margin: 12px 0; color: var(--gris); font-size: 11px; line-height: 1.6; }
+.archive-dialog a { text-decoration: none; }
+
 /* Les commandes restent accessibles au pouce pendant la visite. */
 .bottom-actions { position: fixed; z-index: 20; inset: auto 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--bordure); background: var(--blanc); box-shadow: var(--ombre); }
 .bottom-actions .button { min-height: 48px; min-width: 0; padding: 10px 7px; font-size: 13px; }
 .bottom-actions .button svg { display: none; }
 .notice { position: fixed; z-index: 25; left: 50%; bottom: calc(var(--bottom-height) + 12px); transform: translateX(-50%); max-width: calc(100vw - 24px); width: max-content; border: 1px solid var(--bleu); border-radius: 10px; padding: 12px 16px; background: var(--bleu); color: var(--blanc); box-shadow: var(--ombre); font-size: 12px; }
+.notice { pointer-events: none; }
 .notice.is-error { background: var(--alerte); border-color: var(--alerte); }
 .photo-dialog { max-width: min(960px, calc(100vw - 20px)); max-height: calc(100dvh - 32px); padding: 12px; border: 1px solid var(--bordure); border-radius: 14px; background: var(--blanc); }
 .photo-dialog::backdrop { background: color-mix(in srgb, var(--anthracite) 72%, transparent); }
@@ -211,7 +280,9 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 }
 @media (min-width: 700px) {
   :root { --header-height: 98px; }
-  .app-header { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: calc(16px + env(safe-area-inset-top)) 24px 16px; }
+  .app-header { grid-template-columns: minmax(250px, 365px) minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: calc(16px + env(safe-area-inset-top)) 24px 16px; }
+  .app-header:has(.header-control[hidden]) { grid-template-columns: minmax(250px, 365px) minmax(0, 1fr); }
+  .app-header:has(.header-control[hidden]) .header-statuses { max-width: none; }
   .header-statuses { max-width: 200px; justify-content: flex-end; }
   .main-content { padding: 30px 24px 20px; }
   .control-header, .summary-panel { padding: 23px 24px; }
@@ -226,6 +297,24 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
   .section-progress { font-size: 12px; }
   .bottom-actions { display: flex; justify-content: flex-end; padding-right: 24px; padding-left: 24px; }
   .bottom-actions .button { min-width: 170px; padding: 12px 20px; }
+  .home-view, .folders-view { padding: 40px 24px 36px; }
+  .home-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .home-card { min-height: 210px; padding: 25px 20px; }
+  .home-card-title { font-size: 23px; }
+  .home-card-description { font-size: 13px; }
+  .home-documents { padding: 24px; }
+  .home-documents > .button { width: auto; min-width: 220px; }
+  .home-backup-actions > .button { flex: 0 1 auto; }
+  .folders-tools { padding: 23px 24px; }
+  .folders-tools .form-field { max-width: 600px; }
+  .folder-building { margin: 12px; }
+  .folder-type > summary { padding: 16px 18px; }
+  .folder-building > summary { padding: 14px 16px; }
+  .folder-year { padding-right: 12px; padding-left: 12px; }
+  .archive-card { padding: 16px; }
+  .archive-actions .button { flex: 0 1 auto; min-width: 105px; font-size: 12px; }
+  .finish-control > .button { width: auto; min-width: 220px; }
+  .finish-control p { text-align: left; }
 }
 @media (min-width: 1000px) {
   .app-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: calc(100vh - var(--header-height) - var(--bottom-height)); }
