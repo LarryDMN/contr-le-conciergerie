@@ -45,6 +45,9 @@ svg { flex: 0 0 auto; }
 .header-top { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: 10px; }
 .header-navigation { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .header-navigation > .button { padding-right: 10px; padding-left: 10px; }
+/* Le raccourci de statistiques garde son texte entier et une cible de 44 px. */
+.header-top:has(#dashboardButton:not([hidden])) { flex-direction: column; align-items: stretch; }
+.header-top:has(#dashboardButton:not([hidden])) .header-navigation { flex-wrap: wrap; justify-content: flex-end; }
 .brand { display: inline-flex; align-items: center; min-width: 0; min-height: 44px; width: 280px; max-width: 100%; text-decoration: none; }
 .brand-logo { display: block; width: 100%; height: 40px; max-width: 100%; object-fit: contain; object-position: left center; }
 .header-control { min-width: 0; }
@@ -149,6 +152,10 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 .rating-button[aria-pressed="true"] { border-color: var(--bleu); background: var(--bleu); color: var(--blanc); }
 .rating-button[data-rating="4"]:not([aria-pressed="true"]) .rating-number { color: var(--alerte); }
 .rating-button[aria-pressed="true"]::after { content: "✓"; position: absolute; top: 2px; right: 4px; font-size: 10px; }
+.previous-comparison { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 10px; color: var(--gris); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.previous-comparison small { color: var(--gris); font-size: 11px; }
+.comparison-worse { color: var(--alerte); font-weight: 750; }
+.comparison-better { color: var(--bleu); font-weight: 750; }
 .row-details { margin-top: 14px; }
 .remark-field textarea { min-height: 70px; }
 .photo-area { min-width: 0; padding-top: 12px; }
@@ -186,7 +193,7 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 .loading-message { padding: 25px; text-align: center; color: var(--gris); }
 
 /* L’accueil sépare les activités et donne accès à la sauvegarde complète. */
-.home-view, .folders-view, .controls-view, .anomalies-view { width: 100%; max-width: 1080px; margin: 0 auto; padding: 30px 12px 28px; }
+.home-view, .folders-view, .controls-view, .anomalies-view, .dashboard-view { width: 100%; max-width: 1080px; margin: 0 auto; padding: 30px 12px 28px; }
 .home-heading { margin-bottom: 24px; }
 .home-heading h1 { max-width: 620px; }
 .home-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
@@ -333,6 +340,26 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
 .controls-storage { margin-top: 24px; padding: 20px 16px; }
 .controls-storage > .field-help { margin-top: 12px; color: var(--gris); font-size: 11px; line-height: 1.6; }
 
+/* Le tableau de bord n'affiche que des statistiques calculées sur l'appareil. */
+.dashboard-summary { min-width: 0; padding: 20px 16px; }
+.dashboard-summary h2 { font-size: 15px; line-height: 1.5; }
+.dashboard-summary-values { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin: 18px 0 0; }
+.dashboard-summary-values > div { min-width: 0; padding-top: 12px; border-top: 1px solid var(--bordure); }
+.dashboard-summary-values dt { color: var(--gris); font-size: 12px; }
+.dashboard-summary-values dd { margin: 4px 0 0; color: var(--anthracite); font-size: 23px; font-weight: 750; line-height: 1.4; overflow-wrap: anywhere; }
+.dashboard-tools { margin: 24px 0 12px; }
+.dashboard-help { margin-bottom: 18px; color: var(--gris); font-size: 12px; line-height: 1.7; }
+.dashboard-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.dashboard-card { display: flex; flex-direction: column; gap: 18px; width: 100%; min-width: 0; min-height: 175px; padding: 20px 16px; text-align: left; background: var(--blanc); color: var(--anthracite); border: 1px solid var(--bordure); border-radius: 12px; box-shadow: var(--ombre); overflow-wrap: anywhere; }
+.dashboard-card:hover { background: var(--bleu-clair); border-color: var(--bleu); }
+.dashboard-card-name { display: block; font-size: 17px; font-weight: 750; line-height: 1.5; }
+.dashboard-card-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; width: 100%; }
+.dashboard-card-stats > span { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.dashboard-card-stats small { color: var(--gris); font-size: 11px; font-weight: 500; line-height: 1.5; }
+.dashboard-card-stats strong { font-size: 26px; font-weight: 750; color: var(--anthracite); }
+.dashboard-card-date, .dashboard-no-control { display: block; font-size: 12px; color: var(--gris); line-height: 1.6; }
+.dashboard-card-date { margin-top: auto; }
+
 /* Les anomalies gardent leurs photos et leur historique après suppression du contrôle. */
 .anomaly-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
 .anomaly-tabs > button { min-width: 0; min-height: 48px; padding: 12px 8px; border: 1px solid var(--bordure); color: var(--anthracite); background: var(--gris-clair); font-weight: 650; }
@@ -419,7 +446,7 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
   .section-progress { font-size: 12px; }
   .bottom-actions { display: flex; justify-content: flex-end; padding-right: 24px; padding-left: 24px; }
   .bottom-actions .button { min-width: 170px; padding: 12px 20px; }
-  .home-view, .folders-view, .controls-view, .anomalies-view { padding: 40px 24px 36px; }
+  .home-view, .folders-view, .controls-view, .anomalies-view, .dashboard-view { padding: 40px 24px 36px; }
   .home-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
   .home-card { min-height: 210px; padding: 25px 20px; }
   .home-card-title { font-size: 23px; }
@@ -441,6 +468,12 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
   .saved-control-actions > .button { flex-basis: 100%; }
   .controls-view .list-pagination { max-width: 440px; width: 100%; justify-self: center; }
   .controls-storage { padding: 24px; }
+  .dashboard-summary { padding: 24px; }
+  .dashboard-summary-values { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+  .dashboard-summary-values > div { padding-top: 0; border-top: 0; }
+  .dashboard-tools { max-width: 520px; }
+  .dashboard-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .dashboard-card { padding: 24px; }
   .anomaly-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 24px; }
   .anomaly-card { padding: 22px 24px; }
   .anomaly-actions > .button { flex: 0 1 auto; min-width: 180px; }
@@ -508,6 +541,10 @@ h1 { margin-top: 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; let
   .print-table .print-rating { text-align: center; vertical-align: middle; color: var(--bleu); font-weight: bold; }
   .print-table .print-rating.bad { color: var(--alerte); }
   .print-frequency { display: block; margin-top: 1mm; color: var(--gris); font-size: 8pt; font-weight: normal; }
+  .print-previous, .previous-comparison { display: block; margin-top: 1mm; color: var(--gris); font-size: 8pt; font-weight: normal; }
+  .print-previous small, .previous-comparison small { font-size: 7pt; }
+  .comparison-worse { color: var(--alerte) !important; }
+  .comparison-better { color: var(--bleu) !important; }
   .print-photos-row td { padding: 2mm 3mm; }
   .print-photos { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 3mm; }
   .print-photos figure { display: inline-block; margin: 0; max-width: 48mm; break-inside: avoid; }

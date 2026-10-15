@@ -33,6 +33,9 @@
 
   let database;
   const controls = new Map();
+  // Les statistiques et références lisent des clichés ayant réellement été écrits.
+  const registeredControls = new Map();
+  const newControlDates = new Map();
   const archives = new Map();
   const anomalies = new Map();
   const anomalyDirty = new Set();
@@ -61,6 +64,7 @@
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
 
   const lists = window.CONTROL_LISTS.create({ controls, archives, typeLabels, buildingName, displayDate,
+    catalogs: { conciergerie: buildings, bureaux: offices },
     ratedCount, escapeHTML, itemCount: record => itemsFor(record).length,
     versionOf: record => versions.get(record.id) || record.updatedAt });
   const anomalyUI = window.ANOMALIES.createUI({ anomalies, controls, escapeHTML, displayDate, buildingName,
@@ -137,7 +141,11 @@
   async function readControls() {
     let request;
     await transaction('readonly', store => { request = store.getAll(); });
-    request.result.forEach(record => controls.set(record.id, normalizeRecord(record)));
+    request.result.forEach(record => {
+      const normalized = normalizeRecord(record);
+      controls.set(record.id, normalized);
+      registeredControls.set(record.id, structuredClone(normalized));
+    });
   }
 
   async function readArchives() {
@@ -181,6 +189,12 @@
     // Aucun rapprochement automatique : les anciennes adresses restent intactes.
     record.buildingName ??= '';
     record.rows ||= {};
+    if (!Object.hasOwn(record, 'lineLabels')) {
+      const known = new Map(itemsFor(record).map(item => [item.id, item.label]));
+      // Capturer les seules lignes réellement présentes avant de compléter le formulaire.
+      record.lineLabels = Object.fromEntries(Object.keys(record.rows).filter(id => known.has(id))
+        .map(id => [id, known.get(id)]));
+    }
     itemsFor(record).forEach(item => {
       if (!Object.hasOwn(record.rows, item.id)) record.rows[item.id] = blankRow();
     });
@@ -198,6 +212,7 @@
   }
 
   function markChanged(record = current()) {
+    record.lineLabels = { ...record.lineLabels, ...Object.fromEntries(itemsFor(record).map(item => [item.id, item.label])) };
     delete record.completedAt;
     record.updatedAt = new Date().toISOString();
     versions.set(record.id, (versions.get(record.id) || 0) + 1);
@@ -230,6 +245,7 @@
       anomalyUpdates.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
       if (anomalyUpdates.length) usageDirty = true;
       snapshots.forEach(({ record, version }) => {
+        registeredControls.set(record.id, record);
         if (versions.get(record.id) === version) dirty.delete(record.id);
       });
       saveError = false;
@@ -299,6 +315,7 @@
                     aria-pressed="${row.rating === rating.value}" aria-label="${rating.value} : ${escapeHTML(rating.label)}">
                     <span class="rating-number">${rating.value}</span><span class="rating-label">${escapeHTML(rating.label)}</span></button>`).join('')}
                 </div></div>
+              <p class="previous-comparison" data-comparison="${item.id}" hidden></p>
               <div class="row-details"><label class="remark-field" for="remark-${item.id}"><span>Remarque</span>
                 <textarea id="remark-${item.id}" data-remark="${item.id}" rows="2" placeholder="Une observation à noter…">${escapeHTML(row.remark)}</textarea></label>
                 <div class="photo-area">${photoButtons(item.id)}</div></div>
@@ -360,8 +377,38 @@
           <p class="summary-meta">${escapeHTML(group.title || section.title)} · ${row.photos.length} photo${row.photos.length > 1 ? 's' : ''}</p>
           <p class="summary-remark">${escapeHTML(row.remark || 'Aucune remarque')}</p></div></article>`;
     }).join('') : '<p class="summary-empty">Les éléments notés 3 ou 4 apparaîtront ici, avec leurs remarques et leurs photos.</p>';
+    renderComparisons();
     renderList();
   }
+
+  function comparisonFor(record) {
+    const visible = { ...record, lineLabels: Object.fromEntries(itemsFor(record).map(item => [item.id, item.label])) };
+    return window.CONTROL_INSIGHTS.compare(visible, registeredControls,
+      { isNew: newControlDates.has(record.id), defaultDate: newControlDates.get(record.id) || '' }, templateFor);
+  }
+
+  function comparisonMarkup(state) {
+    if (!state || state.kind === 'none') return '<span>Aucun contrôle précédent</span>';
+    const note = state.kind === 'new' ? 'Nouvelle ligne' : state.kind === 'unrated' ? 'Précédent : non noté'
+      : state.kind === 'ambiguous' ? 'Libellé répété : comparaison non univoque' : `Précédent : ${state.rating}`;
+    const marker = state.direction === 'worse' ? '<b class="comparison-worse" aria-label="Dégradation">↓ Dégradation</b>'
+      : state.direction === 'better' ? '<b class="comparison-better" aria-label="Amélioration">↑ Amélioration</b>' : '';
+    return `<span>${escapeHTML(note)}</span>${marker}${state.date ? `<small>${escapeHTML(displayDate(state.date))}</small>` : ''}`;
+  }
+
+  function renderComparisons() {
+    const record = current();
+    if (!record || view !== 'control') return;
+    const comparison = comparisonFor(record);
+    items.forEach(item => {
+      const element = document.querySelector(`[data-comparison="${item.id}"]`);
+      if (!element) return;
+      element.hidden = !record.rows[item.id]?.rating;
+      if (!element.hidden) element.innerHTML = comparisonMarkup(comparison.byRow[item.id]);
+    });
+  }
+
+  const reportConfig = record => ({ ...templateFor(record), comparison: comparisonFor(record) });
 
   function renderEditor() {
     const record = current();
@@ -479,6 +526,7 @@
     if (activeType === 'bureaux' && !offices.length) { notify('Aucun bureau disponible dans la liste.'); return; }
     if (currentId) await flushChanges();
     const record = makeControl();
+    newControlDates.set(record.id, record.date);
     controls.set(record.id, record);
     usageDirty = true;
     currentId = record.id;
@@ -494,6 +542,7 @@
     await prepareManagement();
     setType(controls.get(id).type);
     currentId = id;
+    newControlDates.delete(id);
     showView('control');
     renderEditor();
   }
@@ -504,6 +553,7 @@
     record.id = uid();
     record.date = today();
     record.createdAt = new Date().toISOString();
+    newControlDates.set(record.id, record.date);
     controls.set(record.id, record);
     usageDirty = true;
     currentId = record.id;
@@ -654,7 +704,10 @@
         retained.forEach(anomaly => stores.anomalies.put(anomaly));
       }, ['controls', 'archives', 'anomalies']);
       retained.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
-      selected.forEach(id => { controls.delete(id); archives.delete(id); dirty.delete(id); versions.delete(id); });
+      selected.forEach(id => {
+        controls.delete(id); registeredControls.delete(id); newControlDates.delete(id);
+        archives.delete(id); dirty.delete(id); versions.delete(id);
+      });
       if (selected.includes(currentId)) currentId = sortedControls(activeType)[0]?.id;
       usageDirty = true;
     });
@@ -695,6 +748,7 @@
       anomalyUpdates.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
       snapshots.forEach(record => {
         controls.set(record.id, record);
+        registeredControls.set(record.id, structuredClone(record));
         versions.set(record.id, (versions.get(record.id) || 0) + 1);
         dirty.delete(record.id);
       });
@@ -884,6 +938,14 @@
       // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
       if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
       if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
+      let lineLabels;
+      if (Object.hasOwn(record, 'lineLabels')) {
+        if (!record.lineLabels || typeof record.lineLabels !== 'object' || Array.isArray(record.lineLabels)) invalid();
+        lineLabels = Object.fromEntries(Object.entries(record.lineLabels).map(([id, label]) => {
+          if (!/^[a-z][a-z0-9-]*$/.test(id) || typeof label !== 'string' || !label) invalid();
+          return [id, label];
+        }));
+      }
       ids.add(record.id);
       const rows = {};
       Object.entries(record.rows).forEach(([key, row]) => {
@@ -898,6 +960,7 @@
         ...(record.completedAt ? { completedAt: record.completedAt } : {}),
         ...(record.photosRemovedAt ? { photosRemovedAt: record.photosRemovedAt } : {}),
         ...(officeSections ? { officeSections } : {}),
+        ...(lineLabels ? { lineLabels } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
     const owners = new Map(records.map(record => [record.id, record]));
@@ -956,6 +1019,7 @@
       imported.forEach(anomaly => stores.anomalies.put(anomaly));
     }, ['controls', 'archives', 'anomalies']);
     records.forEach(record => controls.set(record.id, record));
+    records.forEach(record => registeredControls.set(record.id, structuredClone(record)));
     pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
     imported.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
     usageDirty = true;
@@ -983,6 +1047,7 @@
   function renderPrintReport() {
     const record = current();
     if (!record || view !== 'control' || !items.length) { $('#printReport').innerHTML = ''; return; }
+    const comparison = comparisonFor(record);
     $('#printReport').innerHTML = `<header class="print-header"><img class="print-logo" src="logo-horizontal.png" alt="E. Blanco SA">
       <h1>${record.type === 'bureaux' ? 'Modèle de contrôle de l’entretien de bureaux' : 'Modèle de contrôle des conciergeries'}</h1>
       <dl class="print-metadata">${record.buildingName ? `<div><dt>${record.type === 'bureaux' ? 'Bureau' : 'Immeuble'}</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
@@ -997,7 +1062,7 @@
             <thead><tr><th scope="col">Élément contrôlé</th>${[1, 2, 3, 4].map(value => `<th scope="col">${value}</th>`).join('')}<th scope="col">Remarques</th></tr></thead>
             <tbody>${group.items.map(item => {
               const row = record.rows[item.id];
-              return `<tr><th scope="row">${escapeHTML(item.label)}${item.frequency ? `<br><small>Fréquence attendue : ${escapeHTML(item.frequency)}</small>` : ''}</th>${[1, 2, 3, 4].map(value => `<td class="print-rating">${row.rating === value ? '×' : ''}</td>`).join('')}
+              return `<tr><th scope="row">${escapeHTML(item.label)}${item.frequency ? `<br><small>Fréquence attendue : ${escapeHTML(item.frequency)}</small>` : ''}${row.rating ? `<div class="previous-comparison">${comparisonMarkup(comparison.byRow[item.id])}</div>` : ''}</th>${[1, 2, 3, 4].map(value => `<td class="print-rating">${row.rating === value ? '×' : ''}</td>`).join('')}
                 <td class="print-remark">${escapeHTML(row.remark)}</td></tr>${row.photos.length
                   ? `<tr class="print-photos-row"><td colspan="6"><strong>${escapeHTML(item.label)}</strong>${printPhotos(row.photos)}</td></tr>` : ''}`;
             }).join('')}</tbody></table>`).join('')}</section>`).join('')}
@@ -1057,10 +1122,11 @@
 
   function showView(nextView) {
     view = nextView;
-    const views = { home: 'homeView', menu: 'sectionMenuView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView' };
+    const views = { home: 'homeView', menu: 'sectionMenuView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView', dashboard: 'dashboardView' };
     Object.entries(views).forEach(([name, id]) => { $(`#${id}`).hidden = view !== name; });
     $('.skip-link').href = view === 'control' ? '#main' : `#${views[view]}`;
-    $('#sectionBackButton').hidden = !['controls', 'anomalies', 'control'].includes(view);
+    $('#sectionBackButton').hidden = !['controls', 'anomalies', 'control', 'dashboard'].includes(view);
+    $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control', 'dashboard'].includes(view);
     $('#sectionMenuTitle').textContent = typeLabels[activeType];
     $('#controlsTypeLabel').textContent = typeLabels[activeType];
     $('#anomaliesTypeLabel').textContent = typeLabels[activeType];
@@ -1070,6 +1136,7 @@
     renderHome();
     if (view === 'controls') renderList();
     if (view === 'anomalies') anomalyUI.render(activeType);
+    if (view === 'dashboard') renderDashboard();
     window.scrollTo(0, 0);
   }
 
@@ -1083,6 +1150,31 @@
     await prepareManagement();
     showView('controls');
     $('#newControl').disabled = activeType === 'bureaux' && !offices.length;
+  }
+
+  async function openDashboard() {
+    await prepareManagement();
+    $('#dashboardSort').value = 'anomalies';
+    showView('dashboard');
+  }
+
+  function renderDashboard() {
+    const result = window.CONTROL_INSIGHTS.stats({ controls: registeredControls, anomalies,
+      catalogs: { conciergerie: buildings, bureaux: offices }, templateFor,
+      sort: $('#dashboardSort').value, type: activeType });
+    $('#dashboardTypeLabel').textContent = typeLabels[activeType];
+    $('#dashboardSummaryControls').textContent = result.summary.totalControls;
+    $('#dashboardSummaryAnomalies').textContent = result.summary.openAnomalies;
+    $('#dashboardSummaryDate').textContent = result.summary.lastDate ? displayDate(result.summary.lastDate) : 'Aucun contrôle';
+    $('#dashboardEmpty').hidden = result.cards.length > 0;
+    const decimal = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    $('#dashboardCards').innerHTML = result.cards.map(card => `<button type="button" class="dashboard-card" data-dashboard-site="${escapeHTML(card.key)}">
+      <span class="dashboard-card-name">${escapeHTML(card.name)}</span>
+      ${card.hasControl ? `<span class="dashboard-card-stats"><span><small>Moyenne du dernier contrôle</small><strong>${card.average === null ? 'Non noté' : decimal.format(card.average)}</strong></span>
+        <span><small>Anomalies ouvertes</small><strong>${card.openAnomalies}</strong></span></span>
+        <span class="dashboard-card-date">Dernier contrôle : ${escapeHTML(displayDate(card.latestDate))}</span>`
+        : `<span class="dashboard-no-control">Aucun contrôle</span><span class="dashboard-card-date">${card.openAnomalies} anomalie${card.openAnomalies > 1 ? 's' : ''} ouverte${card.openAnomalies > 1 ? 's' : ''}</span>`}
+      </button>`).join('');
   }
 
   async function openAnomalies() {
@@ -1227,7 +1319,7 @@
     pdfBusy = true;
     setStorageStatus();
     try {
-      const blob = await window.CONTROL_PDF.generate(structuredClone(record), templateFor(record));
+      const blob = await window.CONTROL_PDF.generate(structuredClone(record), reportConfig(record));
       const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
         buildingName: record.buildingName, address: record.address, date: record.date,
         filename: window.CONTROL_PDF.filename(record), generatedAt: new Date().toISOString(), blob };
@@ -1360,7 +1452,7 @@
       const timestamp = new Date().toISOString();
       record.updatedAt = timestamp;
       if (finish) record.completedAt = timestamp;
-      const blob = await window.CONTROL_PDF.generate(record, templateFor(record));
+      const blob = await window.CONTROL_PDF.generate(record, reportConfig(record));
       const previous = archives.get(record.id);
       const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
         buildingName: record.buildingName, address: record.address, date: record.date,
@@ -1373,6 +1465,7 @@
       }, ['controls', 'archives', 'anomalies']);
       anomalyUpdates.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
       controls.set(record.id, record);
+      registeredControls.set(record.id, structuredClone(record));
       archives.set(record.id, archive);
       usageDirty = true;
       versions.set(record.id, (versions.get(record.id) || 0) + 1);
@@ -1401,6 +1494,15 @@
   function bindEvents() {
     document.querySelectorAll('[data-open-type]').forEach(button => button.addEventListener('click', () => perform(() => openType(button.dataset.openType))));
     $('#homeButton').addEventListener('click', () => perform(goHome));
+    $('#dashboardButton').addEventListener('click', () => perform(openDashboard));
+    $('#dashboardSort').addEventListener('change', renderDashboard);
+    $('#dashboardCards').addEventListener('click', event => {
+      const card = event.target.closest('[data-dashboard-site]');
+      if (card) perform(async () => {
+        await openControls();
+        lists.filterSite(activeType, card.dataset.dashboardSite, currentId);
+      });
+    });
     $('#sectionBackButton').addEventListener('click', () => perform(() => openType(activeType)));
     $('#menuNewControl').addEventListener('click', () => perform(newControl));
     $('#menuControls').addEventListener('click', () => perform(openControls));
@@ -1466,6 +1568,7 @@
         if (id === 'controlDate' && !validDate(event.target.value)) return;
         current().date = event.target.value;
         markChanged();
+        renderComparisons();
         renderList();
       });
       if (id === 'controlDate') $(`#${id}`).addEventListener('blur', event => {
