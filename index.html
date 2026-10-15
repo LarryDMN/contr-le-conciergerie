@@ -6,18 +6,18 @@
     <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
     <title>Contrôles et dossiers — E. Blanco SA</title>
-    <link rel="stylesheet" href="style.css?v=7">
-    <script src="config.js?v=7" defer></script>
+    <link rel="stylesheet" href="style.css?v=8">
+    <script src="config.js?v=8" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="data/bureaux.js?v=7" defer></script>
-    <script src="office-model.js?v=7" defer></script>
-    <script src="insights.js?v=7" defer></script>
+    <script src="data/bureaux.js?v=8" defer></script>
+    <script src="office-model.js?v=8" defer></script>
+    <script src="insights.js?v=8" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js?v=7" defer></script>
-    <script src="lists.js?v=7" defer></script>
-    <script src="anomalies.js?v=7" defer></script>
-    <script src="app.js?v=7" defer></script>
+    <script src="pdf.js?v=8" defer></script>
+    <script src="lists.js?v=8" defer></script>
+    <script src="anomalies.js?v=8" defer></script>
+    <script src="app.js?v=8" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -26,11 +26,13 @@
         <a class="brand" href="#/" aria-label="E. Blanco SA, retour à l’accueil">
           <img class="brand-logo" src="logo-horizontal.png" alt="E. Blanco SA" width="2107" height="302">
         </a>
-        <nav class="header-navigation" aria-label="Navigation principale"><button id="sectionBackButton" type="button" class="button button-quiet" aria-label="Retour au menu de la section" hidden>Menu</button><button id="dashboardButton" type="button" class="button button-quiet" hidden>Tableau de bord</button><button id="homeButton" type="button" class="button button-quiet">Accueil</button></nav>
+        <nav class="header-navigation" aria-label="Navigation principale"><button id="sectionBackButton" type="button" class="button button-secondary" hidden><span aria-hidden="true">←</span> Retour</button><button id="dashboardButton" type="button" class="button button-secondary" hidden>Tableau de bord</button><button id="homeButton" type="button" class="button button-secondary" hidden>Accueil</button></nav>
       </div>
+      <h1 id="pageTitle">Accueil</h1>
       <div id="headerControl" class="header-control" hidden>
         <p id="selectedBuildingName" class="selected-building-name">Choisir un immeuble</p>
         <div class="progress-block"><div class="progress-label"><strong>Progression</strong><span id="progressText" aria-live="polite">0 / 30 lignes notées</span></div><progress id="progressBar" value="0" max="30" aria-label="Nombre de lignes notées">0 / 30</progress></div>
+        <div id="ratingLegend" class="rating-legend" aria-label="Échelle de notation"><span class="legend-item"><b class="legend-score score-1">1</b> Très bon</span><span class="legend-item"><b class="legend-score score-2">2</b> Bon</span><span class="legend-item"><b class="legend-score score-3">3</b> Moyen</span><span class="legend-item"><b class="legend-score score-4">4</b> Mauvais</span></div>
       </div>
       <div class="header-statuses" aria-label="État de l’application">
         <span id="connectionStatus" class="status-pill" role="status">Vérification…</span>
@@ -39,59 +41,33 @@
     </header>
 
     <main id="homeView" class="home-view" tabindex="-1">
-      <div class="page-heading home-heading">
-        <p class="eyebrow">Votre espace de contrôle</p>
-        <h1>Une visite, un contrôle, un dossier.</h1>
-        <p class="page-description">Choisissez votre activité pour retrouver vos contrôles et commencer une visite.</p>
-      </div>
       <div class="home-cards" aria-label="Choisir un type de contrôle">
         <button type="button" class="home-card" data-open-type="conciergerie">
           <span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 28V9l11-5 11 5v19M2 28h28M13 28v-7h6v7M10 12h2m8 0h2m-12 5h2m8 0h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="home-card-content"><span class="home-card-title">Contrôle conciergerie</span><span class="home-card-description">Immeubles, entretien intérieur et extérieur.</span><span id="homeConciergeCount" class="home-card-count">0 contrôle enregistré</span></span>
-          <span class="home-card-arrow" aria-hidden="true">→</span>
+          <span class="home-card-title">Contrôle conciergerie</span>
         </button>
         <button type="button" class="home-card" data-open-type="bureaux">
           <span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 27V5h22v22M2 27h28M10 10h3m6 0h3m-12 6h3m6 0h3m-9 11v-6h6v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="home-card-content"><span class="home-card-title">Contrôle entretien de bureaux</span><span class="home-card-description">Bureaux, zones et fréquences d’entretien.</span><span id="homeOfficeCount" class="home-card-count">0 contrôle enregistré</span></span>
-          <span class="home-card-arrow" aria-hidden="true">→</span>
+          <span class="home-card-title">Contrôle entretien de bureaux</span>
         </button>
       </div>
-      <section class="home-documents panel" aria-labelledby="homeDocumentsTitle">
-        <div class="home-documents-heading"><div><p class="eyebrow">Les PDF de vos visites</p><h2 id="homeDocumentsTitle">Dossiers</h2><p class="page-description">Retrouvez vos documents par type, immeuble et année.</p></div><span id="homeArchiveCount" class="summary-count" aria-label="Nombre de PDF archivés">0</span></div>
-        <button id="openFolders" type="button" class="button button-primary button-full">Ouvrir les dossiers <span aria-hidden="true">→</span></button>
-      </section>
-      <section class="home-backup" aria-labelledby="homeBackupTitle">
-        <h2 id="homeBackupTitle">Sauvegarde de l’appareil</h2>
-        <p>Les contrôles, photos et PDF restent sur cet appareil. Exportez une copie pour les conserver ou les transférer.</p>
-        <div class="home-backup-actions"><button id="homeExport" type="button" class="button button-secondary">Exporter toutes les données</button><button id="homeImport" type="button" class="button button-secondary">Importer une sauvegarde</button></div>
-      </section>
-      <section class="home-storage panel" aria-labelledby="homeStorageTitle">
-        <div class="panel-heading"><h2 id="homeStorageTitle">Espace utilisé sur cet appareil</h2></div>
-        <div id="storageUsageInfo" class="storage-usage" aria-live="polite">
-          <div class="storage-total"><span>Photos et PDF</span><strong id="storageUsageTotal">0 Mo</strong></div>
-          <div><span>Photos</span><strong id="storageUsagePhotos">0 Mo</strong></div>
-          <div><span>PDF</span><strong id="storageUsagePDFs">0 Mo</strong></div>
-        </div>
-        <p class="field-help">Taille des photos et des PDF enregistrés, hors textes et stockage du navigateur.</p>
-        <div class="photos-cleanup" aria-labelledby="photosCleanupTitle">
-          <h3 id="photosCleanupTitle">Libérer de la place</h3>
-          <p>Retirez les photos des contrôles antérieurs à une date, dans les deux activités. Les notes, remarques et PDF sont conservés.</p>
-          <div class="photos-cleanup-actions"><label class="form-field" for="photosBeforeDate"><span>Contrôles datés avant le</span><input id="photosBeforeDate" type="date" required></label><button id="removeOlderPhotos" type="button" class="button button-secondary">Supprimer les photos avant cette date</button></div>
-        </div>
-      </section>
+      <nav class="home-tools" aria-label="Dossiers et sauvegarde">
+        <button id="openFolders" type="button" class="button button-secondary">Dossiers</button>
+        <button id="homeExport" type="button" class="button button-secondary">Exporter toutes les données</button>
+        <button id="homeImport" type="button" class="button button-secondary">Importer une sauvegarde</button>
+      </nav>
+      <p class="local-note">Les données restent sur cet appareil. Exportez une sauvegarde pour les conserver ou les transférer.</p>
     </main>
 
     <main id="sectionMenuView" class="section-menu-view" tabindex="-1" hidden>
-      <h1 id="sectionMenuTitle" class="visually-hidden">Choisir une action</h1>
       <div class="section-menu" aria-label="Choisir une action dans cette section">
-        <button id="menuNewControl" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true">+</span><span>Nouveau contrôle</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
-        <button id="menuAnomalies" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m12 3 10 17H2L12 3Zm0 6v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Suivi des anomalies</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
-        <button id="menuControls" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H5V3h1Zm8 0v5h5M8 12h8m-8 4h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Mes contrôles</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
+        <button id="menuNewControl" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true">+</span><span>Nouveau contrôle</span></button>
+        <button id="menuAnomalies" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m12 3 10 17H2L12 3Zm0 6v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Suivi des anomalies</span></button>
+        <button id="menuControls" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H5V3h1Zm8 0v5h5M8 12h8m-8 4h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Mes contrôles</span></button>
       </div>
     </main>
 
     <main id="dashboardView" class="dashboard-view" tabindex="-1" hidden>
-      <div class="page-heading"><p id="dashboardTypeLabel" class="eyebrow">Contrôle conciergerie</p><h1>Tableau de bord</h1><p class="page-description">Le dernier contrôle de chaque site et les anomalies qui restent à régler.</p></div>
       <section class="dashboard-summary panel" aria-labelledby="dashboardSummaryTitle">
         <h2 id="dashboardSummaryTitle">Toutes activités confondues</h2>
         <dl class="dashboard-summary-values"><div><dt>Contrôles enregistrés</dt><dd id="dashboardSummaryControls">0</dd></div><div><dt>Anomalies ouvertes</dt><dd id="dashboardSummaryAnomalies">0</dd></div><div><dt>Dernier contrôle</dt><dd id="dashboardSummaryDate">Aucun contrôle</dd></div></dl>
@@ -103,7 +79,6 @@
     </main>
 
     <main id="controlsView" class="controls-view" tabindex="-1" hidden>
-      <div class="page-heading"><p id="controlsTypeLabel" class="eyebrow">Contrôle conciergerie</p><h1>Mes contrôles</h1></div>
       <section class="controls-panel panel" aria-label="Contrôles enregistrés">
         <button id="newControl" type="button" class="button button-primary button-full">
           <span aria-hidden="true" class="button-symbol">+</span> Nouveau contrôle
@@ -117,27 +92,19 @@
         <div class="list-selection-tools"><label class="selection-toggle" for="controlSelectAll"><input id="controlSelectAll" type="checkbox"><span>Tout sélectionner sur cette page</span></label><p id="controlListCount" class="control-list-count" role="status">0 contrôle</p></div>
         <div id="controlSelectionBar" class="selection-bar" aria-label="Actions sur les contrôles sélectionnés" hidden>
           <p id="controlSelectionCount" class="selection-count" role="status">0 contrôle sélectionné</p>
-          <div class="selection-actions"><button id="exportSelectedControls" type="button" class="button button-primary">Exporter la sélection (JSON)</button><button id="deleteSelectedControls" type="button" class="button button-secondary">Supprimer la sélection</button><button id="removeSelectedPhotos" type="button" class="button button-secondary">Supprimer les photos de la sélection</button><button id="clearControlSelection" type="button" class="button button-quiet">Tout désélectionner</button></div>
+          <div class="selection-actions"><button id="exportSelectedControls" type="button" class="button button-primary">Exporter la sélection (JSON)</button><button id="clearControlSelection" type="button" class="button button-secondary">Tout désélectionner</button><button id="removeSelectedPhotos" type="button" class="button button-danger">Supprimer les photos de la sélection</button><button id="deleteSelectedControls" type="button" class="button button-danger">Supprimer la sélection</button></div>
         </div>
         <div id="controlList" class="control-list" aria-label="Liste des contrôles"><p class="list-empty">Chargement des contrôles…</p></div>
         <nav class="list-pagination" aria-label="Pages des contrôles"><p id="controlPageInfo" class="page-info" role="status">Page 1 sur 1</p><div class="pagination-buttons"><button id="controlPreviousPage" type="button" class="button button-secondary" disabled>Précédent</button><button id="controlNextPage" type="button" class="button button-secondary" disabled>Suivant</button></div></nav>
-        <div class="sidebar-bottom">
-          <button id="importControl" type="button" class="button button-secondary button-full">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Importer
-          </button>
-          <div class="local-note"><span class="local-note-icon" aria-hidden="true">⌂</span><p>Vos données restent sur cet appareil. Exportez régulièrement vos contrôles pour les conserver.</p></div>
-        </div>
       </section>
-      <section class="controls-storage panel" aria-labelledby="controlsStorageTitle">
-        <div class="panel-heading"><h2 id="controlsStorageTitle">Espace utilisé sur cet appareil</h2></div>
-        <div class="storage-usage" aria-live="polite"><div class="storage-total"><span>Photos et PDF</span><strong id="controlsStorageTotal">0 Mo</strong></div><div><span>Photos</span><strong id="controlsStoragePhotos">0 Mo</strong></div><div><span>PDF</span><strong id="controlsStoragePDFs">0 Mo</strong></div></div>
-        <p class="field-help">Toutes activités confondues. Taille des photos et des PDF enregistrés, hors textes et stockage du navigateur.</p>
-      </section>
+      <details class="photos-cleanup panel">
+        <summary>Retirer les anciennes photos</summary>
+        <p>Dans les deux activités, retirez uniquement les photos des contrôles antérieurs à la date choisie. Les notes, remarques et PDF sont conservés.</p>
+        <div class="photos-cleanup-actions"><label class="form-field" for="photosBeforeDate"><span>Contrôles datés avant le</span><input id="photosBeforeDate" type="date" required></label><button id="removeOlderPhotos" type="button" class="button button-danger">Supprimer les photos avant cette date</button></div>
+      </details>
     </main>
 
     <main id="anomaliesView" class="anomalies-view" tabindex="-1" hidden>
-      <div class="page-heading"><p id="anomaliesTypeLabel" class="eyebrow">Contrôle conciergerie</p><h1>Suivi des anomalies</h1><p class="page-description">Retrouvez les lignes notées 3 ou 4 et les corrections apportées.</p></div>
       <div class="anomaly-tabs" role="tablist" aria-label="Statut des anomalies"><button id="anomaliesOpenTab" type="button" role="tab" aria-selected="true" aria-controls="anomalyResults" tabindex="0">En cours</button><button id="anomaliesResolvedTab" type="button" role="tab" aria-selected="false" aria-controls="anomalyResults" tabindex="-1">Réglées</button></div>
       <section class="anomaly-filters panel" aria-label="Filtrer les anomalies"><label class="form-field" for="anomalyBuildingFilter"><span>Immeuble ou bureau</span><select id="anomalyBuildingFilter"><option value="">Tous les immeubles ou bureaux</option></select></label><label class="form-field" for="anomalySearch"><span>Rechercher une anomalie</span><input id="anomalySearch" type="search" placeholder="Ligne, zone, remarque…" autocomplete="off"></label></section>
       <div id="anomalyResults" role="tabpanel" aria-labelledby="anomaliesOpenTab"><p id="anomaliesEmpty" class="list-empty" hidden>Aucune anomalie en cours.</p><div id="anomalyList" class="anomaly-list" aria-label="Liste des anomalies"></div><div id="anomalyPagination"></div></div>
@@ -145,11 +112,7 @@
 
     <div id="controlView" class="app-layout" hidden>
       <main id="main" class="main-content" tabindex="-1">
-        <div class="page-heading">
-          <div><p id="workflowEyebrow" class="eyebrow">Modèle de contrôle des conciergeries</p><h1 id="workflowTitle">Contrôle de l’immeuble</h1><p id="workflowDescription" class="page-description">Notez chaque élément, ajoutez vos remarques et documentez avec des photos.</p></div>
-        </div>
-
-        <section id="officePlaceholder" class="office-placeholder panel" aria-labelledby="officePlaceholderTitle" hidden><span class="home-card-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 27V5h22v22M2 27h28M10 10h3m6 0h3m-12 6h3m6 0h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span><h2 id="officePlaceholderTitle">Modèle à venir</h2><p>Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.</p></section>
+        <section id="officePlaceholder" class="office-placeholder panel" aria-labelledby="officePlaceholderTitle" hidden><h2 id="officePlaceholderTitle">Modèle à venir</h2><p>Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.</p></section>
 
         <div id="controlForm">
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">
@@ -162,15 +125,11 @@
           </div>
           <p id="photosRemovedNotice" class="photos-removed-notice" role="status" hidden>Les photos de ce contrôle ont été retirées. Les notes et le PDF ont été conservés.</p>
           <div class="control-actions" aria-label="Actions sur le contrôle actuel">
-            <button id="exportControl" type="button" class="button button-quiet">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 16V3m-4 4 4-4 4 4M5 15v5h14v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Exporter
-            </button>
-            <button id="duplicateControl" type="button" class="button button-quiet">
+            <button id="duplicateControl" type="button" class="button button-secondary">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V3H3v13h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Dupliquer
             </button>
-            <button id="deleteControl" type="button" class="button button-quiet button-danger">
+            <button id="deleteControl" type="button" class="button button-danger">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Supprimer
             </button>
@@ -179,15 +138,14 @@
 
         <fieldset id="inspectionFields" class="inspection-fields" disabled>
         <legend class="visually-hidden">Lignes du contrôle, remarques, photos et résumé</legend>
-        <section class="inspection-guide" aria-label="Échelle de notation et consignes pour les photos">
-          <div class="rating-legend" aria-label="Échelle de notation"><span class="legend-item"><b class="legend-score score-1">1</b> Très bon</span><span class="legend-item"><b class="legend-score score-2">2</b> Bon</span><span class="legend-item"><b class="legend-score score-3">3</b> Moyen</span><span class="legend-item"><b class="legend-score score-4">4</b> Mauvais</span></div>
-          <p class="photo-guidance"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M9 4h6l2 3h4v14H3V7h4l2-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="1.7"/></svg>Joignez une photo pour la note 4, ainsi que pour tous les dégâts et actes de vandalisme.</p>
+        <section class="inspection-guide" aria-label="Consignes pour les photos">
+          <p class="photo-guidance"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M9 4h6l2 3h4v14H3V7h4l2-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="1.7"/></svg>Photo recommandée pour la note 4, les dégâts et les actes de vandalisme.</p>
         </section>
 
         <div id="sections" class="sections"><p class="loading-message">Chargement du formulaire…</p></div>
 
         <section class="summary-panel panel" aria-labelledby="summaryTitle">
-          <div class="panel-heading"><div><p class="eyebrow">Points à suivre</p><h2 id="summaryTitle">Résumé du contrôle</h2></div><span id="summaryCount" class="summary-count">0</span></div>
+          <div class="panel-heading"><div><h2 id="summaryTitle">Résumé du contrôle</h2></div><span id="summaryCount" class="summary-count">0</span></div>
           <p class="summary-description">Les éléments notés 3 ou 4 apparaissent ici avec leurs remarques et leurs photos.</p>
           <div id="summaryContent"><p class="summary-empty">Aucun point à suivre pour le moment.</p></div>
           <div class="finish-control"><button id="finishControl" type="button" class="button button-primary button-full">Terminer le contrôle</button><p>Enregistre le contrôle et son PDF dans les dossiers.</p></div>
@@ -199,14 +157,14 @@
     </div>
 
     <main id="foldersView" class="folders-view" tabindex="-1" hidden>
-      <div class="page-heading"><p class="eyebrow">Vos documents enregistrés</p><h1>Dossiers</h1><p class="page-description">Les PDF sont classés par type, immeuble et année. Chaque enregistrement remplace le PDF précédent du même contrôle.</p></div>
+      <p class="page-description">Les PDF sont classés par type, immeuble et année. Chaque enregistrement remplace le PDF précédent du même contrôle.</p>
       <section class="folders-tools panel" aria-label="Rechercher et choisir un dossier de sauvegarde">
         <label class="form-field" for="folderSearch"><span>Rechercher un PDF</span><input id="folderSearch" type="search" placeholder="Immeuble, année ou nom du fichier…" autocomplete="off"></label>
         <div class="directory-actions"><button id="chooseDirectory" type="button" class="button button-secondary" hidden>Choisir le dossier de sauvegarde</button><button id="authorizeDirectory" type="button" class="button button-secondary" hidden>Réautoriser le dossier</button></div>
         <p id="directoryStatus" class="directory-status" role="status"></p>
       </section>
       <div class="list-selection-tools archive-selection-tools"><label class="selection-toggle" for="archiveSelectAll"><input id="archiveSelectAll" type="checkbox"><span>Tout sélectionner sur cette page</span></label><p id="archiveListCount" class="control-list-count" role="status">0 PDF</p></div>
-      <div id="archiveSelectionBar" class="selection-bar archive-selection-bar" aria-label="Actions sur les PDF sélectionnés" hidden><p id="archiveSelectionCount" class="selection-count" role="status">0 PDF sélectionné</p><div class="selection-actions"><button id="deleteSelectedArchives" type="button" class="button button-secondary">Supprimer la sélection</button><button id="clearArchiveSelection" type="button" class="button button-quiet">Tout désélectionner</button></div></div>
+      <div id="archiveSelectionBar" class="selection-bar archive-selection-bar" aria-label="Actions sur les PDF sélectionnés" hidden><p id="archiveSelectionCount" class="selection-count" role="status">0 PDF sélectionné</p><div class="selection-actions"><button id="clearArchiveSelection" type="button" class="button button-secondary">Tout désélectionner</button><button id="deleteSelectedArchives" type="button" class="button button-danger">Supprimer la sélection</button></div></div>
       <p id="foldersEmpty" class="folders-empty">Aucun PDF enregistré. Ouvrez un contrôle et choisissez « Enregistrer » pour créer son dossier.</p>
       <div id="archiveTree" class="archive-tree" aria-label="PDF par type, immeuble et année"></div>
       <nav class="list-pagination archive-pagination" aria-label="Pages des dossiers"><p id="archivePageInfo" class="page-info" role="status">Page 1 sur 1</p><div class="pagination-buttons"><button id="archivePreviousPage" type="button" class="button button-secondary" disabled>Précédent</button><button id="archiveNextPage" type="button" class="button button-secondary" disabled>Suivant</button></div></nav>
@@ -241,14 +199,14 @@
       <label class="form-field" for="resolveAnomalyDate"><span>Date de réglage</span><input id="resolveAnomalyDate" type="date" required></label>
       <label class="form-field" for="resolveAnomalyPhoto"><span>Photo de la correction (facultative)</span><input id="resolveAnomalyPhoto" type="file" accept="image/*" capture="environment"></label>
       <div id="resolveAnomalyPreview" class="resolve-anomaly-preview" aria-live="polite"></div>
-      <div class="confirmation-actions"><button id="resolveAnomalySave" type="button" class="button button-primary">Marquer comme réglée</button><button id="resolveAnomalyCancel" type="button" class="button button-quiet" autofocus>Annuler</button></div>
+      <div class="confirmation-actions"><button id="resolveAnomalySave" type="button" class="button button-primary">Marquer comme réglée</button><button id="resolveAnomalyCancel" type="button" class="button button-secondary" autofocus>Annuler</button></div>
     </dialog>
     <dialog id="massConfirmDialog" class="mass-confirm-dialog" aria-labelledby="massConfirmTitle" aria-describedby="massConfirmDescription">
       <h2 id="massConfirmTitle">Confirmer la suppression</h2>
       <p id="massConfirmDescription"></p>
       <p class="confirmation-help">Vous pouvez exporter une sauvegarde avant de confirmer.</p>
       <p id="massConfirmExportStatus" class="confirmation-export-status" role="status" hidden></p>
-      <div class="confirmation-actions"><button id="massConfirmExport" type="button" class="button button-secondary">Exporter d’abord (JSON)</button><button id="massConfirmDelete" type="button" class="button button-primary">Confirmer la suppression</button><button id="massConfirmCancel" type="button" class="button button-quiet" autofocus>Annuler</button></div>
+      <div class="confirmation-actions"><button id="massConfirmExport" type="button" class="button button-secondary">Exporter d’abord (JSON)</button><button id="massConfirmCancel" type="button" class="button button-secondary" autofocus>Annuler</button><button id="massConfirmDelete" type="button" class="button button-danger">Confirmer la suppression</button></div>
     </dialog>
     <section id="printReport" aria-label="Document imprimable"></section>
     <noscript><div class="noscript-message">Activez JavaScript pour créer et enregistrer vos contrôles sur cet appareil.</div></noscript>
