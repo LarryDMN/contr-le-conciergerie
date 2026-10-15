@@ -116,6 +116,42 @@
     });
   }
 
+  function previousLabel(comparison) {
+    if (!comparison || comparison.kind === 'none') return '';
+    if (comparison.kind === 'new') return 'Nouvelle ligne';
+    if (comparison.kind === 'ambiguous') return 'Libellé répété : comparaison non univoque';
+    const parts = String(comparison.date || '').split('-');
+    const date = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : '';
+    const rating = comparison.kind === 'unrated' ? 'non noté' : comparison.rating;
+    return `Précédent : ${rating}${date ? ` · ${date}` : ''}`;
+  }
+
+  function drawComparison(doc, hook, colors) {
+    if (hook.section !== 'body' || hook.column.dataKey !== 'element') return;
+    const comparison = hook.row.raw._comparison;
+    const lines = hook.cell._comparisonLines;
+    if (!comparison || !lines?.length) return;
+    const { cell } = hook;
+    const direction = comparison.direction;
+    const color = direction === 'worse' ? colors.alerte : direction === 'better' ? colors.bleu : colors.gris;
+    const baseline = cell.y + cell.height - 2.8 - (lines.length - 1) * 3.2;
+    const left = cell.x + 2;
+    // Les flèches sont vectorielles : elles s'impriment même sans police Unicode.
+    if (direction === 'worse' || direction === 'better') {
+      const center = left + 1;
+      const top = baseline - 2.6;
+      const bottom = baseline + .1;
+      const tip = direction === 'worse' ? bottom : top;
+      const wings = direction === 'worse' ? bottom - 1 : top + 1;
+      doc.setDrawColor(...color).setLineWidth(.3);
+      doc.line(center, top, center, bottom);
+      doc.line(center - .8, wings, center, tip);
+      doc.line(center + .8, wings, center, tip);
+    }
+    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...color);
+    doc.text(lines, left + (direction ? 3.5 : 0), baseline, { lineHeightFactor: 1.21 });
+  }
+
   async function generate(record, config) {
     if (!window.jspdf?.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
       throw new Error('La bibliothèque PDF locale est indisponible. Rechargez l’application.');
@@ -214,12 +250,27 @@
             hook.cell.styles.fontStyle = 'bold';
           }
           if (hook.row.raw._kind === 'comments') hook.cell.styles.fontStyle = 'normal';
+          if (hook.column.dataKey === 'element' && hook.row.raw._comparison) {
+            const comparison = hook.row.raw._comparison;
+            const label = previousLabel(comparison);
+            if (label) {
+              // Réserve la place avant le calcul de hauteur du tableau afin que
+              // la comparaison ne recouvre ni le libellé ni les photos suivantes.
+              doc.setFont('helvetica', 'normal').setFontSize(7.5);
+              const lines = doc.splitTextToSize(text(label), 60 - (comparison.direction ? 3.5 : 0));
+              hook.cell._comparisonLines = lines;
+              hook.cell.styles.cellPadding = { top: 2, right: 2, bottom: 3 + lines.length * 3.2, left: 2 };
+            }
+          }
           if (String(hook.column.dataKey).startsWith('rating') && hook.cell.text[0] === 'X') {
             hook.cell.styles.textColor = hook.column.dataKey === 'rating4' ? colors.alerte : colors.bleu;
             hook.cell.styles.fontStyle = 'bold';
           }
         },
-        didDrawCell: hook => drawPhotos(doc, hook, colors)
+        didDrawCell(hook) {
+          drawPhotos(doc, hook, colors);
+          drawComparison(doc, hook, colors);
+        }
       });
       y = doc.lastAutoTable.finalY + 5;
     }
@@ -234,7 +285,8 @@
           const frequency = item.frequency || item.frequence || '';
           // La fréquence informe le lecteur : elle n'intervient pas dans la note.
           const label = frequency ? `${text(item.label)}\nFréquence : ${text(frequency)}` : text(item.label);
-          body.push({ element: label, ...Object.fromEntries([1, 2, 3, 4].map(value => [`rating${value}`, Number(row.rating) === value ? 'X' : ''])), remark: text(row.remark) });
+          const comparison = [1, 2, 3, 4].includes(Number(row.rating)) ? config.comparison?.byRow?.[item.id] : null;
+          body.push({ element: label, ...Object.fromEntries([1, 2, 3, 4].map(value => [`rating${value}`, Number(row.rating) === value ? 'X' : ''])), remark: text(row.remark), _comparison: comparison });
           if (row.photos?.length) body.push(...photoRows(await preparePhotos(row.photos), text(item.label)));
         }
       }

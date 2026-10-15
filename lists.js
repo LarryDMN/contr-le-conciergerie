@@ -7,6 +7,7 @@
   const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
   function create({ controls, archives, typeLabels, buildingName, displayDate, ratedCount, escapeHTML,
+    catalogs = {},
     itemCount = record => Object.keys(record.rows || {}).length,
     versionOf = record => record.updatedAt, onChange = () => {} }) {
     const $ = id => document.getElementById(id);
@@ -111,7 +112,8 @@
       const state = states.get(type);
       const records = [...controls.values()].filter(record => record.type === type).sort((a, b) =>
         b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt)).map(controlProjection);
-      const buildings = new Map();
+      // Les sites du catalogue restent filtrables lorsqu'ils n'ont aucun contrôle.
+      const buildings = new Map((catalogs[type] || []).map(site => [`id:${site.id}`, site.nom || site.adresse]));
       records.forEach(record => { if (!buildings.has(record.building)) buildings.set(record.building, record.name); });
       fillSelect('controlBuildingFilter', [...buildings].sort((a, b) => a[1].localeCompare(b[1], 'fr')),
         type === 'bureaux' ? 'Tous les bureaux' : 'Tous les immeubles', state, 'building');
@@ -253,7 +255,18 @@
       $('clearArchiveSelection').addEventListener('click', clearArchives);
     }
 
-    return Object.freeze({ renderControls, renderArchives, bind, prune, clearControls, clearArchives,
+    function filterSite(type, key, selectedId) {
+      const state = states.get(type);
+      state.building = key;
+      state.year = '';
+      state.month = '';
+      state.query = '';
+      state.page = 0;
+      state.selected.clear();
+      renderControls(type, selectedId);
+    }
+
+    return Object.freeze({ renderControls, renderArchives, bind, prune, clearControls, clearArchives, filterSite,
       selectedControls(type = activeType) { prune(); return [...states.get(type).selected]; },
       selectedArchives() { prune(); return [...archiveState.selected]; } });
   }

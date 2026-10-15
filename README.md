@@ -15,6 +15,7 @@ Conserver l'ensemble du dossier, avec les fichiers suivants à la racine et les 
 - `app.js` : navigation, formulaire, sauvegarde, photos, dossiers, import et export ;
 - `lists.js` : filtres, sélections et pagination des contrôles et des archives ;
 - `anomalies.js` : conservation indépendante des anomalies et de leur statut ;
+- `insights.js` : comparaison des visites et statistiques locales du tableau de bord ;
 - `office-model.js` : adaptation et conservation des checklists propres à chaque bureau ;
 - `pdf.js` : génération des PDF avec le logo et les tableaux du formulaire ;
 - `config.js` : pied de page, notes et liste des lignes ;
@@ -38,7 +39,7 @@ Depuis l'accueil, ouvrir **Contrôle conciergerie** ou **Contrôle entretien de 
 - **Suivi des anomalies** : consulter les lignes notées 3 ou 4 et suivre leur réglage ;
 - **Mes contrôles** : retrouver les contrôles enregistrés, leurs PDF et les actions de gestion de masse.
 
-La liste des contrôles apparaît uniquement dans **Mes contrôles**. Elle n'occupe plus de place dans le formulaire ni dans le menu. Les commandes de navigation permettent de revenir au menu de la section ou à l'accueil. **Dossiers**, l'export et l'import JSON restent accessibles depuis l'accueil.
+La liste des contrôles apparaît uniquement dans **Mes contrôles**. Elle n'occupe plus de place dans le formulaire ni dans le menu. Les commandes de navigation permettent de revenir au menu de la section ou à l'accueil. Le bouton **Tableau de bord** de l'en-tête ouvre les statistiques de l'activité choisie ; il laisse les trois choix du menu inchangés. **Dossiers**, l'export et l'import JSON restent accessibles depuis l'accueil.
 
 ## Remplir un nouveau contrôle
 
@@ -65,6 +66,38 @@ Les trois zones **A. Salles – Cuisine (garde-manger) – Terrasse**, **B. Sani
 Un bureau dont la propriété `checklist` est vide conserve **Modèle à venir**, sans lignes à noter ni PDF de contrôle à générer. Les listes et sélections de contrôles restent séparées entre les deux activités. Aucun champ de téléphone n'est proposé ni enregistré pour les bureaux ; leur PDF n'affiche pas de numéro de téléphone.
 
 Le contrôle conserve la checklist et les informations du bureau choisies lors de sa création. Modifier ou retirer une entrée du catalogue ne change pas les contrôles historiques. Pour choisir un autre bureau après avoir commencé un contrôle, l'application propose de créer un nouveau contrôle et conserve l'ancien avec ses notes, photos et archive PDF.
+
+## Comparer avec la visite précédente
+
+Pendant la saisie, la comparaison recherche un autre contrôle enregistré du **même type** et du **même immeuble ou bureau**. L'identifiant du catalogue permet de reconnaître un bâtiment même si son nom a changé. Les anciens contrôles sans identifiant sont rapprochés par leur nom, ou à défaut leur adresse, à l'identique ; ils ne sont pas fusionnés automatiquement avec un bâtiment du catalogue.
+
+Pour un contrôle rouvert, la visite précédente est celle dont la **date du contrôle est la plus récente, strictement avant la date du contrôle affiché**. Pour un nouveau contrôle, tant que sa date initiale du jour n'est pas modifiée, la dernière visite enregistrée peut aussi dater du même jour. Une date changée manuellement rétablit la recherche strictement antérieure. Le contrôle affiché et les visites datées après lui sont toujours exclus. À date identique, la création la plus récente départage les visites, puis leur dernière modification et leur identifiant. La comparaison affichée pendant une nouvelle visite du même jour peut donc différer après fermeture et réouverture de celle-ci.
+
+Les lignes sont rapprochées par leur **libellé exact**, sans ignorer les accents, la casse ou la ponctuation. Une ligne affiche **Précédent : 2**, par exemple, avec la date de cette visite. Si la note actuelle est plus élevée, **↓** en rouge signale une dégradation ; une note plus faible affiche **↑** en bleu pour une amélioration. À note identique, aucun repère n'est ajouté. Les repères restent informatifs et ne conditionnent ni la notation, ni l'enregistrement, ni la génération du PDF.
+
+Une ligne absente de la visite précédente affiche **Nouvelle ligne**. Une ligne présente mais non notée est signalée comme non notée ; sans visite précédente, aucune note n'est inventée. Si un libellé apparaît plusieurs fois, sa zone départage les lignes lorsque cela donne une correspondance unique. Une ambiguïté restante est signalée sans comparer arbitrairement les notes.
+
+Les nouveaux contrôles conservent leurs libellés pour la comparaison ; les bureaux conservent également leur checklist historique. Pour les anciens contrôles de conciergerie sans libellés enregistrés, ceux-ci sont déduits du modèle courant à chaque lecture, jusqu'à une nouvelle sauvegarde de la fiche après modification ou avec **Enregistrer**, ou jusqu'à l'export puis l'import de cette copie. La simple ouverture ne réécrit pas tous les anciens contrôles. L'application ne peut pas retrouver un libellé renommé avant sa conservation. Renommer ensuite une ligne est traité comme une nouvelle ligne si le libellé exact n'existe plus dans la visite précédente.
+
+Le PDF nouvellement généré reprend **Précédent : X**, la date et le repère de dégradation. Une archive PDF existante reste figée jusqu'à son prochain enregistrement explicite. Supprimer ou importer des contrôles peut changer la visite retenue lors d'une comparaison ultérieure ; aucun historique externe ni appel réseau n'est utilisé.
+
+## Consulter le tableau de bord
+
+Dans une section, utiliser **Tableau de bord** dans l'en-tête. Une carte est affichée pour chaque immeuble ou bureau du catalogue, ainsi que pour les bâtiments historiques encore présents dans les contrôles ou le suivi des anomalies. Les cartes de l'autre activité ne sont pas mélangées avec celles de la section ouverte.
+
+Chaque carte indique :
+
+- la **moyenne du dernier contrôle**, calculée uniquement sur ses lignes notées de 1 à 4, arrondie à une décimale avec une virgule, par exemple **1,8** ; une moyenne plus faible correspond à de meilleures notes ;
+- le **nombre d'anomalies ouvertes**, issu du même suivi que l'onglet **En cours**, et la **date du dernier contrôle** ;
+- **Aucun contrôle** lorsqu'aucune visite enregistrée n'existe pour ce bâtiment. Ces cartes n'ajoutent aucune visite ni note aux statistiques ; un contrôle présent mais entièrement non noté n'a pas de moyenne.
+
+Par défaut, les cartes sont triées par nombre d'anomalies ouvertes décroissant. Le sélecteur permet aussi un tri par nom ou par date du dernier contrôle, de la plus récente à la plus ancienne. Un clic sur une carte ouvre **Mes contrôles**, filtré sur ce seul bâtiment ; les autres filtres, la page et la sélection précédente sont réinitialisés.
+
+La synthèse **Toutes activités confondues** affiche le nombre total de contrôles enregistrés, le total des anomalies ouvertes et la date du dernier contrôle, conciergerie et bureaux réunis. La date utilisée est celle de la visite, et non l'heure du dernier enregistrement. Les brouillons déjà sauvegardés automatiquement sont des contrôles enregistrés, même s'ils ne contiennent pas encore de note ; les modifications dont l'écriture en base n'a pas réussi n'entrent pas dans ces calculs.
+
+Les anomalies sont comptées d'après leur statut persistant, pas uniquement d'après les notes du dernier contrôle : plusieurs visites peuvent avoir chacune leur anomalie ouverte sur une même ligne. Une anomalie restée ouverte après amélioration de la note ou suppression du contrôle continue de compter jusqu'à son réglage. Le compteur diminue après **Marquer réglée**, et augmente après remise **En cours** ; rouvrir le tableau de bord actualise les chiffres. Un bâtiment sans contrôle restant peut donc conserver des anomalies ouvertes.
+
+Tous les calculs utilisent les données locales enregistrées dans le navigateur. Il n'y a ni synchronisation avec d'autres appareils, ni moyenne globale des bâtiments sans contrôle, ni pondération selon les fréquences d'entretien. Les informations sont disponibles hors connexion une fois l'application mise en cache.
 
 ## Suivre les anomalies
 
@@ -193,7 +226,7 @@ Ce fichier est chargé par une balise `script` classique, sans module JavaScript
 
 ## Publier une mise à jour
 
-Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v6`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `office-model.js`, `anomalies.js`, `style.css`, `config.js` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=6` à `?v=7`, avec le cache `v7`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
+Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v7`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `office-model.js`, `anomalies.js`, `insights.js`, `style.css`, `config.js` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=7` à `?v=8`, avec le cache `v8`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
 
 Si seule la liste `data/conciergeries.js` ou le modèle `data/bureaux.js` change, augmenter au minimum la version du cache dans `sw.js`. Ces mises à jour ne suppriment pas les contrôles dans IndexedDB. Ouvrir la nouvelle version avec connexion, attendre la disponibilité hors connexion, puis recharger la page avec connexion. Vérifier les nouvelles données et le fonctionnement hors ligne avant une visite sur place.
 
@@ -219,12 +252,33 @@ Ces scénarios sont à exécuter avec un navigateur récent sur l'appareil chois
 16. **Suivi après suppression et sauvegarde :** supprimer le contrôle d'une anomalie réglée ; vérifier que l'anomalie, son relevé et sa photo de correction restent disponibles avec **contrôle supprimé**, après rechargement également. Exporter puis importer dans un profil vide et vérifier leur restauration. Importer un ancien JSON v1 ou v2 doit créer les anomalies en cours. Réimporter une sauvegarde récente doit conserver l'existant et les liens des copies.
 17. **Mes contrôles, PDF et espace :** vérifier que la liste apparaît seulement dans **Mes contrôles**, jamais dans le menu ni dans le formulaire. Télécharger un PDF existant depuis sa ligne et vérifier son contenu inchangé ; supprimer seulement l'archive puis télécharger depuis la liste pour vérifier sa régénération. Vérifier les filtres, les 50 lignes par page, les actions individuelles et de masse, ainsi que l'espace occupé par les photos, les PDF et les pièces jointes des anomalies. Ouvrir une fiche puis revenir au menu sans afficher de liste dans le formulaire.
 18. **Navigation et anomalies à 320 px hors connexion :** à 320 px, vérifier les deux menus, **Mes contrôles**, les deux onglets d'anomalies et la fenêtre de réglage, sans défilement horizontal et avec des commandes accessibles. Après mise en cache, couper le réseau et ouvrir un nouvel onglet : créer une anomalie avec photo, la régler avec photo de correction, recharger, l'exporter et vérifier la persistance des statuts, la navigation et les téléchargements PDF sans réseau.
+19. **Comparaison et PDF :** créer deux contrôles à des dates successives pour le même bâtiment. Noter deux lignes **2** et **3** lors de la première visite, puis **3** et **2** lors de la seconde. Vérifier **Précédent : 2** avec la date et **↓** rouge sur la première ligne, **Précédent : 3** avec **↑** bleu sur la seconde, et aucun repère à note identique. Générer le PDF et vérifier les notes précédentes et la dégradation. Refaire le parcours en bureaux ; aucun contrôle de conciergerie ne doit servir de visite précédente.
+20. **Limites de la comparaison :** dans un profil de test, importer une visite antérieure dont un libellé exact est absent, puis vérifier **Nouvelle ligne**. Vérifier une ligne antérieure non notée, un libellé répété dans deux zones, un contrôle sans visite précédente, une visite future exclue et un contrôle rouvert comparé uniquement aux dates antérieures. Créer une seconde visite du jour pour vérifier la comparaison pendant sa création, puis vérifier la règle strictement antérieure après réouverture. Exporter, importer et vérifier la conservation des libellés historiques.
+21. **Statistiques et filtres :** prévoir des visites avec des notes **1** et **2** sur leur dernier contrôle : vérifier **1,5** et sa date. Comparer les compteurs avec **Suivi des anomalies**, régler une anomalie puis revenir au tableau de bord : le compteur doit baisser. Vérifier le total de contrôles et la dernière date toutes activités confondues, les trois tris et le clic vers **Mes contrôles** filtré sur le bon site, avec les autres filtres et sélections vidés.
+22. **Carte sans contrôle et hors connexion :** dans une copie de test du catalogue, ajouter un site sans visite : sa carte doit afficher **Aucun contrôle**, sans augmenter le nombre de visites ni créer une moyenne. Supprimer le contrôle d'une anomalie ouverte : elle doit rester comptée. À 320 px, vérifier les cartes, les tris et les repères de comparaison sans débordement ; après mise en cache, ouvrir un nouvel onglet hors connexion et vérifier la comparaison, les statistiques et le PDF.
 
 Pour compléter la validation, dupliquer un contrôle et vérifier l'indépendance de la copie. Dans une copie de test du dossier, modifier puis retirer l'entrée de la liste des conciergeries et vérifier que les contrôles existants conservent leurs informations. Replier une section puis imprimer le formulaire en A4 portrait pour vérifier que la structure papier reste complète.
 
 Utiliser des photos de test sans information sensible. Il n'est pas nécessaire de créer des données d'exemple dans l'application utilisée en production.
 
 ## Résultats de validation
+
+### Comparaison et tableau de bord
+
+Sur la branche `feat/comparaison-tableau-bord`, **10 groupes de vérifications navigateur ont réussi**, sans échec ni erreur JavaScript, sur Chromium **154.0.8037.57** sous Linux, avec un écran tactile mobile simulé de **320 × 850 px**, la langue `fr-CH` et le fuseau `Europe/Zurich` :
+
+- création de deux visites successives avec photo, affichage de la note précédente et de sa date, dégradation rouge et amélioration bleue ; PDF réel de trois pages avec les notes précédentes, les photos et les repères, puis conservation après rechargement ;
+- comparaison pendant la création d'une visite du même jour, recherche strictement antérieure après réouverture ou changement de date, exclusion du contrôle affiché et des visites futures ;
+- libellé absent signalé **Nouvelle ligne**, conservation des libellés historiques dans l'export, et moyenne incluant les anciennes lignes notées même si elles ne figurent plus dans le modèle courant ;
+- comparaison complète en bureaux, avec zones et fréquences conservées dans le PDF, sans téléphone ; exclusion d'un contrôle de conciergerie même lorsque son identifiant de bâtiment est identique à celui du bureau ;
+- moyennes **2,0** en conciergerie et **1,7** en bureaux, synthèse toutes activités confondues, trois tris, anomalies orphelines encore comptées et baisse du compteur après réglage d'une anomalie ;
+- carte **Aucun contrôle** sans moyenne ni augmentation des visites ; clic ouvrant **Mes contrôles** avec zéro résultat pour ce bâtiment, plutôt que les contrôles d'un autre site ;
+- régression de gestion de masse : trois contrôles sélectionnés puis exportés avec leurs PDF et leur anomalie, annulation sans mutation, sauvegarde préalable sans suppression implicite, puis suppression confirmée des trois contrôles et PDF avec conservation de l'anomalie et de ses photos ; tableau de bord actualisé à zéro contrôle et une anomalie orpheline ouverte ;
+- nouvelle page hors connexion après vidage du cache HTTP : comparaison, statistiques et génération du PDF disponibles sans réseau.
+
+Le module de calcul a aussi passé **14 tests de domaine**, couvrant les dates, les types, les libellés exacts et leurs homonymes, les moyennes, les anomalies et les tris. Le générateur PDF a été vérifié séparément sur un document de **cinq pages**, avec 30 lignes, une longue remarque et quatre photos : textes de comparaison, flèches vectorielles, couleurs, pagination et pieds de page. Les vues de menu, tableau de bord et contrôle ont été vérifiées à **320, 480, 700 et 1 024 px**, sans débordement horizontal et avec des boutons d'au moins 44 pixels.
+
+Ces résultats concernent une émulation mobile sur Chromium ; ils ne constituent pas un essai sur téléphone physique, Safari ou Firefox. Les limites historiques des libellés et des comparaisons entre visites du même jour sont décrites plus haut.
 
 ### Navigation et suivi des anomalies
 
