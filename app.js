@@ -34,6 +34,8 @@
   let database;
   const controls = new Map();
   const archives = new Map();
+  const anomalies = new Map();
+  const anomalyDirty = new Set();
   const dirty = new Set();
   const versions = new Map();
   let currentId;
@@ -61,6 +63,10 @@
   const lists = window.CONTROL_LISTS.create({ controls, archives, typeLabels, buildingName, displayDate,
     ratedCount, escapeHTML, itemCount: record => itemsFor(record).length,
     versionOf: record => versions.get(record.id) || record.updatedAt });
+  const anomalyUI = window.ANOMALIES.createUI({ anomalies, controls, escapeHTML, displayDate, buildingName,
+    onOpen: id => perform(() => switchControl(id)),
+    onResolve: id => perform(() => resolveAnomaly(id)),
+    onReopen: id => perform(() => reopenAnomaly(id)), onPhoto: viewAnomalyPhoto });
 
   function notify(message, error = false, persistent = false) {
     clearTimeout(noticeTimer);
@@ -73,14 +79,14 @@
 
   function setStorageStatus() {
     const status = $('#storageStatus');
-    status.dataset.state = saveError ? 'error' : dirty.size || pendingWrites || photoJobs.size || pdfBusy ? 'saving' : 'saved';
+    status.dataset.state = saveError ? 'error' : dirty.size || anomalyDirty.size || pendingWrites || photoJobs.size || pdfBusy ? 'saving' : 'saved';
     status.textContent = saveError ? 'Échec de sauvegarde — réessayez ou exportez' : pdfBusy ? 'Création du PDF…' : photoJobs.size
-      ? 'Préparation des photos…' : dirty.size || pendingWrites ? 'Sauvegarde en cours…' : 'Enregistré sur cet appareil';
+      ? 'Préparation des photos…' : dirty.size || anomalyDirty.size || pendingWrites ? 'Sauvegarde en cours…' : 'Enregistré sur cet appareil';
   }
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('conciergerie-controles', 2);
+      const request = indexedDB.open('conciergerie-controles', 3);
       request.onupgradeneeded = () => {
         const db = request.result;
         const store = db.objectStoreNames.contains('controls')
@@ -99,6 +105,11 @@
           archiveStore.createIndex('type', 'type');
         }
         if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('anomalies')) {
+          const anomalyStore = db.createObjectStore('anomalies', { keyPath: 'id' });
+          anomalyStore.createIndex('type', 'type');
+          anomalyStore.createIndex('controlId', 'controlId');
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -133,6 +144,35 @@
     let request;
     await transaction('readonly', store => { request = store.getAll(); }, 'archives');
     request.result.forEach(archive => archives.set(archive.controlId, archive));
+  }
+
+  function deriveAnomalies(records, existing = anomalies) {
+    return records.flatMap(record => window.ANOMALIES.derive(record, templateFor(record), existing));
+  }
+
+  async function readAnomalies() {
+    let request;
+    await transaction('readonly', store => { request = store.getAll(); }, 'anomalies');
+    request.result.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
+    // Migration idempotente : les anciens relevés apparaissent sans modifier leurs notes ni PDF.
+    const updates = deriveAnomalies([...controls.values()]);
+    const updatedIds = new Set(updates.map(anomaly => anomaly.id));
+    anomalies.forEach(anomaly => {
+      if (!updatedIds.has(anomaly.id) && anomaly.controlDeleted !== !controls.has(anomaly.controlId)) {
+        updates.push({ ...anomaly, controlDeleted: !controls.has(anomaly.controlId) });
+      }
+    });
+    if (updates.length) {
+      updates.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
+      try {
+        await transaction('readwrite', store => updates.forEach(anomaly => store.put(anomaly)), 'anomalies');
+      } catch {
+        // Une base pleine doit rester consultable, exportable et nettoyable.
+        updates.forEach(anomaly => anomalyDirty.add(anomaly.id));
+        saveError = true;
+        notify('Le suivi des anomalies reste en mémoire : son enregistrement a échoué. Exportez toutes les données, puis libérez de la place ou réessayez.', true, true);
+      }
+    }
   }
 
   const blankRow = () => ({ rating: null, remark: '', photos: [] });
@@ -171,15 +211,24 @@
   // Sérialiser les écritures et associer une version au cliché évite de perdre une frappe récente.
   function persistChanges() {
     clearTimeout(saveTimer);
-    if (!dirty.size || mutationBusy) return saveQueue;
+    if ((!dirty.size && !anomalyDirty.size) || mutationBusy) return saveQueue;
     const snapshots = [...dirty].filter(id => controls.has(id)).map(id => ({
       record: structuredClone(controls.get(id)), version: versions.get(id)
     }));
     pendingWrites += 1;
     setStorageStatus();
-    const job = saveQueue.catch(() => {}).then(() => transaction('readwrite', store => {
-      snapshots.forEach(snapshot => store.put(snapshot.record));
-    })).then(() => {
+    let anomalyUpdates;
+    const job = saveQueue.catch(() => {}).then(() => {
+      const pending = [...anomalyDirty].map(id => [id, anomalies.get(id)]);
+      anomalyUpdates = [...new Map([...pending,
+        ...deriveAnomalies(snapshots.map(snapshot => snapshot.record)).map(anomaly => [anomaly.id, anomaly])]).values()];
+      return transaction('readwrite', stores => {
+        snapshots.forEach(snapshot => stores.controls.put(snapshot.record));
+        anomalyUpdates.forEach(anomaly => stores.anomalies.put(anomaly));
+      }, ['controls', 'anomalies']);
+    }).then(() => {
+      anomalyUpdates.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
+      if (anomalyUpdates.length) usageDirty = true;
       snapshots.forEach(({ record, version }) => {
         if (versions.get(record.id) === version) dirty.delete(record.id);
       });
@@ -198,7 +247,7 @@
   async function flushChanges() {
     await Promise.all([...photoJobs]);
     await saveQueue.catch(() => {});
-    while (dirty.size) await persistChanges();
+    while (dirty.size || anomalyDirty.size) await persistChanges();
   }
 
   // Les actions asynchrones ne peuvent pas se chevaucher (dupliquer, supprimer, importer…).
@@ -217,7 +266,7 @@
   }
 
   function renderList() {
-    lists.renderControls(activeType, currentId);
+    if (view === 'controls') lists.renderControls(activeType, currentId);
     renderHome();
   }
 
@@ -434,16 +483,18 @@
     usageDirty = true;
     currentId = record.id;
     markChanged(record);
+    showView('control');
     renderEditor();
     await persistChanges();
     notify('Nouveau contrôle créé.');
   }
 
   async function switchControl(id) {
-    if (!controls.has(id) || id === currentId) return;
-    await flushChanges();
+    if (!controls.has(id)) { notify('Le contrôle d’origine a été supprimé. Le suivi reste conservé.'); return; }
+    await prepareManagement();
     setType(controls.get(id).type);
     currentId = id;
+    showView('control');
     renderEditor();
   }
 
@@ -559,14 +610,14 @@
       // Vider aussi les clichés déjà en file avant de retirer les données.
       await saveQueue.catch(() => {});
       await action();
-      if (!dirty.size) saveError = false;
+      if (!dirty.size && !anomalyDirty.size) saveError = false;
     }
     finally {
       editor.inert = wasInert;
       mutationBusy = false;
       pendingWrites -= 1;
       setStorageStatus();
-      if (dirty.size) saveTimer = setTimeout(() => { persistChanges().catch(() => {}); }, 250);
+      if (dirty.size || anomalyDirty.size) saveTimer = setTimeout(() => { persistChanges().catch(() => {}); }, 250);
     }
   }
 
@@ -576,16 +627,7 @@
     if (view === 'folders') renderFolders();
     if (view === 'control') {
       if (current()) renderEditor();
-      else if (!items.length) renderPendingModel();
-      else {
-        $('#controlForm').hidden = true;
-        $('#officePlaceholder').hidden = true;
-        $('#headerControl').hidden = true;
-        $('#controlActions').hidden = true;
-        $('#newControl').disabled = false;
-        $('#workflowTitle').textContent = typeLabels[activeType];
-        $('#workflowDescription').textContent = 'Aucun contrôle enregistré. Cliquez sur « Nouveau contrôle » pour commencer.';
-      }
+      else showView('controls');
     }
     renderHome();
   }
@@ -598,12 +640,20 @@
     const pdfCount = selected.filter(id => archives.has(id)).length;
     const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
     if (!await confirmManagement({ title: `Supprimer ${count} contrôle${count > 1 ? 's' : ''} ?`,
-      description: `Cette action supprime définitivement ${count} contrôle${count > 1 ? 's' : ''}, leurs ${photoCount} photo${photoCount > 1 ? 's' : ''} et leurs ${pdfCount} PDF correspondants dans Dossiers. Les copies déjà téléchargées ou copiées sur ordinateur sont conservées.`,
+      description: `Cette action supprime définitivement ${count} contrôle${count > 1 ? 's' : ''}, leurs ${photoCount} photo${photoCount > 1 ? 's' : ''} et leurs ${pdfCount} PDF correspondants dans Dossiers. Le suivi des anomalies et ses photos restent conservés, ainsi que les copies déjà téléchargées ou copiées sur ordinateur.`,
       exportFirst: () => exportControls(selected, selected) })) return;
     await managedMutation(async () => {
+      const owners = new Set(selected);
+      const followUp = new Map(anomalies);
+      // Conserver aussi les dernières observations en mémoire si l'autosauvegarde a échoué.
+      deriveAnomalies(selected.map(id => controls.get(id))).forEach(anomaly => followUp.set(anomaly.id, anomaly));
+      const retained = [...followUp.values()].filter(anomaly => owners.has(anomaly.controlId))
+        .map(anomaly => ({ ...anomaly, controlDeleted: true, updatedAt: new Date().toISOString() }));
       await transaction('readwrite', stores => {
         selected.forEach(id => { stores.controls.delete(id); stores.archives.delete(id); });
-      }, ['controls', 'archives']);
+        retained.forEach(anomaly => stores.anomalies.put(anomaly));
+      }, ['controls', 'archives', 'anomalies']);
+      retained.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
       selected.forEach(id => { controls.delete(id); archives.delete(id); dirty.delete(id); versions.delete(id); });
       if (selected.includes(currentId)) currentId = sortedControls(activeType)[0]?.id;
       usageDirty = true;
@@ -619,9 +669,14 @@
     const count = selected.length;
     const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
     if (!await confirmManagement({ title: `Supprimer les photos de ${count} contrôle${count > 1 ? 's' : ''} ?`,
-      description: `Retirer définitivement ${photoCount} photo${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}${reason}. Les contrôles, notes, remarques et PDF restent intacts. Les photos intégrées aux PDF archivés restent dans ces PDF.`,
+      description: `Retirer définitivement ${photoCount} photo${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}${reason}. Les contrôles, notes, remarques et PDF restent intacts. Les photos du suivi des anomalies et des PDF archivés restent conservées.`,
       exportFirst: () => exportControls(selected, selected), deleteLabel: 'Supprimer les photos' })) return;
     const timestamp = new Date().toISOString();
+    const selectedOwners = new Set(selected);
+    const pendingAnomalies = [...anomalyDirty].map(id => anomalies.get(id))
+      .filter(anomaly => selectedOwners.has(anomaly.controlId));
+    const anomalyUpdates = [...new Map([...pendingAnomalies,
+      ...deriveAnomalies(selected.map(id => controls.get(id)))].map(anomaly => [anomaly.id, anomaly])).values()];
     const snapshots = selected.map(id => {
       // Construire le cliché sans recopier les grandes chaînes base64 qui vont être retirées.
       const original = controls.get(id);
@@ -633,7 +688,11 @@
       return record;
     });
     await managedMutation(async () => {
-      await transaction('readwrite', store => snapshots.forEach(record => store.put(record)));
+      await transaction('readwrite', stores => {
+        snapshots.forEach(record => stores.controls.put(record));
+        anomalyUpdates.forEach(anomaly => stores.anomalies.put(anomaly));
+      }, ['controls', 'anomalies']);
+      anomalyUpdates.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
       snapshots.forEach(record => {
         controls.set(record.id, record);
         versions.set(record.id, (versions.get(record.id) || 0) + 1);
@@ -741,8 +800,8 @@
     refreshDerived();
   }
 
-  function downloadJSON(records, pdfArchives) {
-    const payload = { format: 'conciergerie-controles', version: 2, exportedAt: new Date().toISOString(), controls: records, archives: pdfArchives };
+  function downloadJSON(records, pdfArchives, savedAnomalies) {
+    const payload = { format: 'conciergerie-controles', version: 3, exportedAt: new Date().toISOString(), controls: records, archives: pdfArchives, anomalies: savedAnomalies };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -764,8 +823,10 @@
     const pdfArchives = await Promise.all(selectedArchives.map(async ({ blob, ...metadata }) => ({
       ...metadata, pdfDataUrl: await blobToDataURL(blob)
     })));
-    downloadJSON(selectedControls.map(record => structuredClone(record)), pdfArchives);
-    notify(`${selectedControls.length} contrôle(s) et ${selectedArchives.length} PDF exportés, photos incluses.`);
+    const owners = controlIds === null ? null : new Set([...controlIds, ...(archiveIds || [])]);
+    const savedAnomalies = [...anomalies.values()].filter(anomaly => !owners || owners.has(anomaly.controlId));
+    downloadJSON(selectedControls.map(record => structuredClone(record)), pdfArchives, structuredClone(savedAnomalies));
+    notify(`${selectedControls.length} contrôle(s), ${selectedArchives.length} PDF et ${savedAnomalies.length} anomalie(s) exportés, photos incluses.`);
   }
 
   function blobToDataURL(blob) {
@@ -786,16 +847,23 @@
   // Import strict et atomique : un fichier invalide ne modifie aucun contrôle existant.
   function validateImport(payload) {
     const invalid = () => { throw new Error('Fichier de sauvegarde invalide. Aucun contrôle n’a été importé.'); };
-    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2].includes(payload.version) ||
-      !Array.isArray(payload.controls) || (payload.version === 2 && !Array.isArray(payload.archives))) invalid();
+    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2, 3].includes(payload.version) ||
+      !Array.isArray(payload.controls) || (payload.version >= 2 && !Array.isArray(payload.archives)) ||
+      (payload.version === 3 && !Array.isArray(payload.anomalies))) invalid();
     const string = value => { if (typeof value !== 'string') invalid(); return value; };
+    const photoIds = new Map();
     const photos = values => {
       if (!Array.isArray(values)) invalid();
       return values.map(photo => {
         if (!photo || typeof photo.dataUrl !== 'string' ||
           !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(photo.dataUrl) ||
           !Number.isInteger(photo.width) || photo.width < 1 || !Number.isInteger(photo.height) || photo.height < 1) invalid();
-        return { id: uid(), name: string(photo.name), dataUrl: photo.dataUrl,
+        // Les copies d'une même photo gardent une identité commune dans les relevés.
+        const sourceId = typeof photo.id === 'string' ? photo.id : '';
+        if (!photoIds.has(sourceId)) photoIds.set(sourceId, new Map());
+        const byImage = photoIds.get(sourceId);
+        if (!byImage.has(photo.dataUrl)) byImage.set(photo.dataUrl, uid());
+        return { id: byImage.get(photo.dataUrl), name: string(photo.name), dataUrl: photo.dataUrl,
           width: photo.width, height: photo.height, createdAt: string(photo.createdAt) };
       });
     };
@@ -834,7 +902,7 @@
     });
     const owners = new Map(records.map(record => [record.id, record]));
     const archiveIds = new Set();
-    const pdfArchives = (payload.version === 2 ? payload.archives : []).map(archive => {
+    const pdfArchives = (payload.version >= 2 ? payload.archives : []).map(archive => {
       if (!archive || typeof archive.controlId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(archive.controlId) ||
         archiveIds.has(archive.controlId) || !['conciergerie', 'bureaux'].includes(archive.type) || !validDate(archive.date) ||
         typeof archive.filename !== 'string' || !archive.filename.endsWith('.pdf') || /[\\/\x00-\x1f]/.test(archive.filename) ||
@@ -853,38 +921,52 @@
         buildingId: archive.buildingId ?? null, buildingName: string(archive.buildingName), address: string(archive.address),
         filename: archive.filename, generatedAt: archive.generatedAt, blob: new Blob([bytes], { type: 'application/pdf' }) };
     });
-    return { records, pdfArchives };
+    const savedAnomalies = payload.version === 3
+      ? window.ANOMALIES.validate(payload.anomalies, { validDate, photos }) : [];
+    savedAnomalies.forEach(anomaly => {
+      if (owners.has(anomaly.controlId) && owners.get(anomaly.controlId).type !== anomaly.type) invalid();
+    });
+    return { records, pdfArchives, savedAnomalies };
   }
 
   async function importControls(file) {
     let payload;
     try { payload = JSON.parse(await file.text()); }
     catch { throw new Error('Ce fichier ne contient pas une sauvegarde JSON valide.'); }
-    const { records, pdfArchives } = validateImport(payload);
+    const { records, pdfArchives, savedAnomalies } = validateImport(payload);
     await flushChanges();
     let copied = 0;
     const remapped = new Map();
-    records.forEach(record => {
-      const originalId = record.id;
-      if (controls.has(record.id) || archives.has(record.id)) { record.id = uid(); copied += 1; }
-      remapped.set(originalId, record.id);
+    const existingOwners = new Set([...controls.keys(), ...archives.keys(), ...[...anomalies.values()].map(anomaly => anomaly.controlId)]);
+    const incomingOwners = new Set([...records.map(record => record.id), ...pdfArchives.map(archive => archive.controlId), ...savedAnomalies.map(anomaly => anomaly.controlId)]);
+    incomingOwners.forEach(id => remapped.set(id, existingOwners.has(id) ? uid() : id));
+    records.forEach(record => { const id = remapped.get(record.id); if (id !== record.id) copied += 1; record.id = id; });
+    pdfArchives.forEach(archive => { archive.controlId = remapped.get(archive.controlId); });
+    const importedControls = new Set(records.map(record => record.id));
+    savedAnomalies.forEach(anomaly => {
+      anomaly.controlId = remapped.get(anomaly.controlId);
+      anomaly.id = window.ANOMALIES.id(anomaly.controlId, anomaly.rowId);
+      anomaly.controlDeleted = !importedControls.has(anomaly.controlId) && !controls.has(anomaly.controlId);
     });
-    pdfArchives.forEach(archive => {
-      if (remapped.has(archive.controlId)) archive.controlId = remapped.get(archive.controlId);
-      else if (archives.has(archive.controlId) || controls.has(archive.controlId)) archive.controlId = uid();
-    });
+    const imported = new Map(savedAnomalies.map(anomaly => [anomaly.id, anomaly]));
+    deriveAnomalies(records, new Map([...anomalies, ...imported])).forEach(anomaly => imported.set(anomaly.id, anomaly));
     await transaction('readwrite', stores => {
       records.forEach(record => stores.controls.put(record));
       pdfArchives.forEach(archive => stores.archives.put(archive));
-    }, ['controls', 'archives']);
+      imported.forEach(anomaly => stores.anomalies.put(anomaly));
+    }, ['controls', 'archives', 'anomalies']);
     records.forEach(record => controls.set(record.id, record));
     pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
+    imported.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
     usageDirty = true;
     if (records.length) {
       currentId = records[0].id;
       setType(records[0].type);
       showView('control');
       renderEditor();
+    } else if (savedAnomalies.length && !pdfArchives.length) {
+      setType(savedAnomalies[0].type);
+      showView('anomalies');
     } else {
       showView('folders');
       renderFolders();
@@ -951,45 +1033,145 @@
   function renderStorageUsage() {
     if (!usageDirty) return;
     let photoBytes = 0;
+    const addPhotoBytes = photo => {
+      const data = photo.dataUrl || '';
+      const start = data.indexOf(',') + 1;
+      const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+      if (start > 0) photoBytes += Math.max(0, Math.floor((data.length - start) * 3 / 4) - padding);
+    };
     controls.forEach(record => {
       const groups = [...Object.values(record.rows || {}), record.comments];
-      groups.forEach(group => (group?.photos || []).forEach(photo => {
-        const data = photo.dataUrl || '';
-        const start = data.indexOf(',') + 1;
-        const length = data.length - start;
-        const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
-        if (start > 0 && length > 0) photoBytes += Math.floor(length * 3 / 4) - padding;
-      }));
+      groups.forEach(group => (group?.photos || []).forEach(addPhotoBytes));
     });
+    anomalies.forEach(anomaly => [...anomaly.photos, ...anomaly.correctionPhotos].forEach(addPhotoBytes));
     const pdfBytes = [...archives.values()].reduce((total, archive) => total + archive.blob.size, 0);
     const format = bytes => `${new Intl.NumberFormat('fr-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bytes / 1000000)} Mo`;
     $('#storageUsagePhotos').textContent = format(photoBytes);
     $('#storageUsagePDFs').textContent = format(pdfBytes);
     $('#storageUsageTotal').textContent = format(photoBytes + pdfBytes);
+    $('#controlsStoragePhotos').textContent = format(photoBytes);
+    $('#controlsStoragePDFs').textContent = format(pdfBytes);
+    $('#controlsStorageTotal').textContent = format(photoBytes + pdfBytes);
     usageDirty = false;
   }
 
   function showView(nextView) {
     view = nextView;
-    $('#homeView').hidden = view !== 'home';
-    $('#controlView').hidden = view !== 'control';
-    $('#foldersView').hidden = view !== 'folders';
-    $('.skip-link').href = view === 'home' ? '#homeView' : view === 'folders' ? '#foldersView' : '#main';
+    const views = { home: 'homeView', menu: 'sectionMenuView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView' };
+    Object.entries(views).forEach(([name, id]) => { $(`#${id}`).hidden = view !== name; });
+    $('.skip-link').href = view === 'control' ? '#main' : `#${views[view]}`;
+    $('#sectionBackButton').hidden = !['controls', 'anomalies', 'control'].includes(view);
+    $('#sectionMenuTitle').textContent = typeLabels[activeType];
+    $('#controlsTypeLabel').textContent = typeLabels[activeType];
+    $('#anomaliesTypeLabel').textContent = typeLabels[activeType];
     $('#headerControl').hidden = view !== 'control' || !current() || !items.length;
     $('#controlActions').hidden = view !== 'control' || !current() || !items.length;
     document.body.dataset.view = view;
     renderHome();
+    if (view === 'controls') renderList();
+    if (view === 'anomalies') anomalyUI.render(activeType);
     window.scrollTo(0, 0);
   }
 
   async function openType(type) {
-    if (currentId) await flushChanges();
+    await prepareManagement();
     setType(type);
-    currentId = sortedControls(type)[0]?.id;
-    showView('control');
-    if (currentId) renderEditor();
-    else if (type === 'bureaux' ? offices.length : items.length) await newControl();
-    else renderPendingModel();
+    showView('menu');
+  }
+
+  async function openControls() {
+    await prepareManagement();
+    showView('controls');
+    $('#newControl').disabled = activeType === 'bureaux' && !offices.length;
+  }
+
+  async function openAnomalies() {
+    await prepareManagement();
+    anomalyUI.reset(activeType);
+    showView('anomalies');
+  }
+
+  function viewAnomalyPhoto(id, photoId, correction) {
+    const anomaly = anomalies.get(id);
+    const photo = (correction ? anomaly?.correctionPhotos : anomaly?.photos)?.find(photo => photo.id === photoId);
+    if (!photo) return;
+    $('#photoCaption').textContent = `${correction ? 'Correction' : 'Anomalie'} : ${anomaly.label}`;
+    $('#fullPhoto').alt = $('#photoCaption').textContent;
+    $('#fullPhoto').src = photo.dataUrl;
+    $('#photoDialog').showModal();
+  }
+
+  async function reopenAnomaly(id) {
+    await flushChanges();
+    const original = anomalies.get(id);
+    if (!original) return;
+    const updated = { ...original, status: 'open', updatedAt: new Date().toISOString() };
+    await managedMutation(async () => {
+      await transaction('readwrite', store => store.put(updated), 'anomalies');
+      anomalies.set(id, updated);
+    });
+    anomalyUI.render(activeType);
+    notify('Anomalie remise en cours. Le dernier réglage reste conservé.');
+  }
+
+  async function resolveAnomaly(id) {
+    await flushChanges();
+    const anomaly = anomalies.get(id);
+    if (!anomaly) return;
+    const dialog = $('#resolveAnomalyDialog');
+    const date = $('#resolveAnomalyDate');
+    const input = $('#resolveAnomalyPhoto');
+    const save = $('#resolveAnomalySave');
+    const cancel = $('#resolveAnomalyCancel');
+    date.value = today();
+    input.value = '';
+    $('#resolveAnomalyPreview').textContent = '';
+    $('#resolveAnomalyTitle').textContent = `Régler : ${anomaly.label}`;
+    let working = false;
+    const lock = disabled => { working = disabled; [save, cancel, date, input].forEach(element => { element.disabled = disabled; }); };
+    lock(false);
+    await new Promise(resolve => {
+      const cancelled = () => dialog.close();
+      const escaped = event => { event.preventDefault(); if (!working) cancelled(); };
+      const changed = () => { $('#resolveAnomalyPreview').textContent = input.files[0]?.name || ''; };
+      const saved = async () => {
+        if (working || !validDate(date.value)) { if (!working) date.reportValidity(); return; }
+        lock(true);
+        pendingWrites += 1;
+        setStorageStatus();
+        try {
+          const photo = input.files[0] ? await compressPhoto(input.files[0]) : null;
+          const updated = { ...anomalies.get(id), status: 'resolved', resolvedDate: date.value,
+            correctionPhotos: [...anomalies.get(id).correctionPhotos, ...(photo ? [photo] : [])], updatedAt: new Date().toISOString() };
+          await transaction('readwrite', store => store.put(updated), 'anomalies');
+          anomalies.set(id, updated);
+          usageDirty = true;
+          renderHome();
+          anomalyUI.render(activeType);
+          dialog.close('saved');
+          notify('Anomalie marquée comme réglée.');
+        } catch (error) {
+          notify(error.name === 'QuotaExceededError' ? 'Stockage insuffisant. Le réglage n’a pas été enregistré : exportez et libérez de la place.'
+            : 'Le réglage n’a pas pu être enregistré. Vérifiez la photo ou réessayez.', true);
+        } finally { lock(false); pendingWrites -= 1; setStorageStatus(); }
+      };
+      const closed = () => {
+        save.removeEventListener('click', saved);
+        cancel.removeEventListener('click', cancelled);
+        input.removeEventListener('change', changed);
+        dialog.removeEventListener('cancel', escaped);
+        dialog.removeEventListener('close', closed);
+        input.value = '';
+        resolve();
+      };
+      save.addEventListener('click', saved);
+      cancel.addEventListener('click', cancelled);
+      input.addEventListener('change', changed);
+      dialog.addEventListener('cancel', escaped);
+      dialog.addEventListener('close', closed);
+      dialog.showModal();
+      cancel.focus();
+    });
   }
 
   function renderPendingModel() {
@@ -1006,12 +1188,12 @@
   }
 
   async function goHome() {
-    if (currentId) await flushChanges();
+    await prepareManagement();
     showView('home');
   }
 
   async function openFolders() {
-    if (currentId) await flushChanges();
+    await prepareManagement();
     showView('folders');
     renderFolders();
     await updateDirectoryStatus();
@@ -1031,6 +1213,34 @@
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  async function downloadControlPDF(id) {
+    const canWrite = !archives.has(id) && await directoryPermission(true);
+    await prepareManagement();
+    if (archives.has(id)) { downloadPDF(archives.get(id)); return; }
+    const record = controls.get(id);
+    if (!record) return;
+    if (needsBuilding(record) || !itemsFor(record).length) {
+      notify('Choisissez le site et son modèle avant de générer ce PDF.', true); return;
+    }
+    pdfBusy = true;
+    setStorageStatus();
+    try {
+      const blob = await window.CONTROL_PDF.generate(structuredClone(record), templateFor(record));
+      const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
+        buildingName: record.buildingName, address: record.address, date: record.date,
+        filename: window.CONTROL_PDF.filename(record), generatedAt: new Date().toISOString(), blob };
+      await transaction('readwrite', store => store.put(archive), 'archives');
+      archives.set(id, archive);
+      usageDirty = true;
+      renderHome();
+      downloadPDF(archive);
+      if (canWrite) {
+        try { await writeDirectoryPDF(archive); }
+        catch { notify('PDF archivé et téléchargé. La copie ordinateur a échoué ; vérifiez son autorisation.', true); }
+      }
+    } finally { pdfBusy = false; setStorageStatus(); }
   }
 
   function previewArchive(id) {
@@ -1156,7 +1366,12 @@
         buildingName: record.buildingName, address: record.address, date: record.date,
         filename: window.CONTROL_PDF.filename(record), generatedAt: timestamp, blob };
       // Le cliché du contrôle et son PDF sont enregistrés ensemble, ou pas du tout.
-      await transaction('readwrite', stores => { stores.controls.put(record); stores.archives.put(archive); }, ['controls', 'archives']);
+      const anomalyUpdates = deriveAnomalies([record]);
+      await transaction('readwrite', stores => {
+        stores.controls.put(record); stores.archives.put(archive);
+        anomalyUpdates.forEach(anomaly => stores.anomalies.put(anomaly));
+      }, ['controls', 'archives', 'anomalies']);
+      anomalyUpdates.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
       controls.set(record.id, record);
       archives.set(record.id, archive);
       usageDirty = true;
@@ -1186,11 +1401,16 @@
   function bindEvents() {
     document.querySelectorAll('[data-open-type]').forEach(button => button.addEventListener('click', () => perform(() => openType(button.dataset.openType))));
     $('#homeButton').addEventListener('click', () => perform(goHome));
+    $('#sectionBackButton').addEventListener('click', () => perform(() => openType(activeType)));
+    $('#menuNewControl').addEventListener('click', () => perform(newControl));
+    $('#menuControls').addEventListener('click', () => perform(openControls));
+    $('#menuAnomalies').addEventListener('click', () => perform(openAnomalies));
     $('.brand').addEventListener('click', event => { event.preventDefault(); perform(goHome); });
     $('#openFolders').addEventListener('click', () => perform(openFolders));
     $('#homeExport').addEventListener('click', () => perform(exportControls));
     $('#homeImport').addEventListener('click', () => $('#importFile').click());
     lists.bind();
+    anomalyUI.bind();
     $('#exportSelectedControls').addEventListener('click', () => perform(() => {
       const ids = lists.selectedControls(activeType);
       return exportControls(ids, ids);
@@ -1233,6 +1453,10 @@
       if (file) perform(() => importControls(file));
     });
     $('#controlList').addEventListener('click', event => {
+      const download = event.target.closest('[data-download-control]');
+      if (download) { perform(() => downloadControlPDF(download.dataset.downloadControl)); return; }
+      const remove = event.target.closest('[data-delete-control]');
+      if (remove) { perform(() => deleteControls([remove.dataset.deleteControl])); return; }
       const button = event.target.closest('[data-open-control]');
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
@@ -1281,7 +1505,7 @@
     $('#photoDialog').addEventListener('click', event => { if (event.target === $('#photoDialog')) $('#photoDialog').close(); });
     window.addEventListener('beforeprint', renderPrintReport);
     window.addEventListener('beforeunload', event => {
-      if (dirty.size || pendingWrites || photoJobs.size || pdfBusy) { event.preventDefault(); event.returnValue = ''; }
+      if (dirty.size || anomalyDirty.size || pendingWrites || photoJobs.size || pdfBusy) { event.preventDefault(); event.returnValue = ''; }
     });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') persistChanges().catch(() => {});
@@ -1353,6 +1577,7 @@
       };
       await readControls();
       await readArchives();
+      await readAnomalies();
       await readDirectory();
       bindEvents();
       showView('home');

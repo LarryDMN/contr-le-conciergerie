@@ -6,16 +6,17 @@
     <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
     <title>Contrôles et dossiers — E. Blanco SA</title>
-    <link rel="stylesheet" href="style.css?v=5">
-    <script src="config.js?v=5" defer></script>
+    <link rel="stylesheet" href="style.css?v=6">
+    <script src="config.js?v=6" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="data/bureaux.js?v=5" defer></script>
-    <script src="office-model.js?v=5" defer></script>
+    <script src="data/bureaux.js?v=6" defer></script>
+    <script src="office-model.js?v=6" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js?v=5" defer></script>
-    <script src="lists.js?v=5" defer></script>
-    <script src="app.js?v=5" defer></script>
+    <script src="pdf.js?v=6" defer></script>
+    <script src="lists.js?v=6" defer></script>
+    <script src="anomalies.js?v=6" defer></script>
+    <script src="app.js?v=6" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -24,7 +25,7 @@
         <a class="brand" href="#/" aria-label="E. Blanco SA, retour à l’accueil">
           <img class="brand-logo" src="logo-horizontal.png" alt="E. Blanco SA" width="2107" height="302">
         </a>
-        <button id="homeButton" type="button" class="button button-quiet">Accueil</button>
+        <nav class="header-navigation" aria-label="Navigation principale"><button id="sectionBackButton" type="button" class="button button-quiet" aria-label="Retour au menu de la section" hidden>Menu</button><button id="homeButton" type="button" class="button button-quiet">Accueil</button></nav>
       </div>
       <div id="headerControl" class="header-control" hidden>
         <p id="selectedBuildingName" class="selected-building-name">Choisir un immeuble</p>
@@ -79,9 +80,18 @@
       </section>
     </main>
 
-    <div id="controlView" class="app-layout" hidden>
-      <aside class="sidebar" aria-label="Contrôles enregistrés">
-        <div class="sidebar-heading"><p class="eyebrow">Votre espace de travail</p><h2>Mes contrôles</h2></div>
+    <main id="sectionMenuView" class="section-menu-view" tabindex="-1" hidden>
+      <h1 id="sectionMenuTitle" class="visually-hidden">Choisir une action</h1>
+      <div class="section-menu" aria-label="Choisir une action dans cette section">
+        <button id="menuNewControl" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true">+</span><span>Nouveau contrôle</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
+        <button id="menuAnomalies" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m12 3 10 17H2L12 3Zm0 6v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Suivi des anomalies</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
+        <button id="menuControls" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H5V3h1Zm8 0v5h5M8 12h8m-8 4h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Mes contrôles</span><span class="section-choice-arrow" aria-hidden="true">→</span></button>
+      </div>
+    </main>
+
+    <main id="controlsView" class="controls-view" tabindex="-1" hidden>
+      <div class="page-heading"><p id="controlsTypeLabel" class="eyebrow">Contrôle conciergerie</p><h1>Mes contrôles</h1></div>
+      <section class="controls-panel panel" aria-label="Contrôles enregistrés">
         <button id="newControl" type="button" class="button button-primary button-full">
           <span aria-hidden="true" class="button-symbol">+</span> Nouveau contrôle
         </button>
@@ -105,8 +115,22 @@
           </button>
           <div class="local-note"><span class="local-note-icon" aria-hidden="true">⌂</span><p>Vos données restent sur cet appareil. Exportez régulièrement vos contrôles pour les conserver.</p></div>
         </div>
-      </aside>
+      </section>
+      <section class="controls-storage panel" aria-labelledby="controlsStorageTitle">
+        <div class="panel-heading"><h2 id="controlsStorageTitle">Espace utilisé sur cet appareil</h2></div>
+        <div class="storage-usage" aria-live="polite"><div class="storage-total"><span>Photos et PDF</span><strong id="controlsStorageTotal">0 Mo</strong></div><div><span>Photos</span><strong id="controlsStoragePhotos">0 Mo</strong></div><div><span>PDF</span><strong id="controlsStoragePDFs">0 Mo</strong></div></div>
+        <p class="field-help">Toutes activités confondues. Taille des photos et des PDF enregistrés, hors textes et stockage du navigateur.</p>
+      </section>
+    </main>
 
+    <main id="anomaliesView" class="anomalies-view" tabindex="-1" hidden>
+      <div class="page-heading"><p id="anomaliesTypeLabel" class="eyebrow">Contrôle conciergerie</p><h1>Suivi des anomalies</h1><p class="page-description">Retrouvez les lignes notées 3 ou 4 et les corrections apportées.</p></div>
+      <div class="anomaly-tabs" role="tablist" aria-label="Statut des anomalies"><button id="anomaliesOpenTab" type="button" role="tab" aria-selected="true" aria-controls="anomalyResults" tabindex="0">En cours</button><button id="anomaliesResolvedTab" type="button" role="tab" aria-selected="false" aria-controls="anomalyResults" tabindex="-1">Réglées</button></div>
+      <section class="anomaly-filters panel" aria-label="Filtrer les anomalies"><label class="form-field" for="anomalyBuildingFilter"><span>Immeuble ou bureau</span><select id="anomalyBuildingFilter"><option value="">Tous les immeubles ou bureaux</option></select></label><label class="form-field" for="anomalySearch"><span>Rechercher une anomalie</span><input id="anomalySearch" type="search" placeholder="Ligne, zone, remarque…" autocomplete="off"></label></section>
+      <div id="anomalyResults" role="tabpanel" aria-labelledby="anomaliesOpenTab"><p id="anomaliesEmpty" class="list-empty" hidden>Aucune anomalie en cours.</p><div id="anomalyList" class="anomaly-list" aria-label="Liste des anomalies"></div><div id="anomalyPagination"></div></div>
+    </main>
+
+    <div id="controlView" class="app-layout" hidden>
       <main id="main" class="main-content" tabindex="-1">
         <div class="page-heading">
           <div><p id="workflowEyebrow" class="eyebrow">Modèle de contrôle des conciergeries</p><h1 id="workflowTitle">Contrôle de l’immeuble</h1><p id="workflowDescription" class="page-description">Notez chaque élément, ajoutez vos remarques et documentez avec des photos.</p></div>
@@ -197,6 +221,14 @@
       <iframe id="archivePreview" title="Aperçu du PDF"></iframe>
       <p class="archive-preview-help">Si votre navigateur n’affiche pas l’aperçu, téléchargez le PDF pour l’ouvrir.</p>
       <a id="archivePreviewDownload" class="button button-primary button-full" download>Télécharger le PDF</a>
+    </dialog>
+    <dialog id="resolveAnomalyDialog" class="resolve-anomaly-dialog" aria-labelledby="resolveAnomalyTitle">
+      <h2 id="resolveAnomalyTitle">Marquer l’anomalie comme réglée</h2>
+      <p class="field-help">La photo de la correction est facultative. L’anomalie restera disponible dans l’onglet « Réglées ».</p>
+      <label class="form-field" for="resolveAnomalyDate"><span>Date de réglage</span><input id="resolveAnomalyDate" type="date" required></label>
+      <label class="form-field" for="resolveAnomalyPhoto"><span>Photo de la correction (facultative)</span><input id="resolveAnomalyPhoto" type="file" accept="image/*" capture="environment"></label>
+      <div id="resolveAnomalyPreview" class="resolve-anomaly-preview" aria-live="polite"></div>
+      <div class="confirmation-actions"><button id="resolveAnomalySave" type="button" class="button button-primary">Marquer comme réglée</button><button id="resolveAnomalyCancel" type="button" class="button button-quiet" autofocus>Annuler</button></div>
     </dialog>
     <dialog id="massConfirmDialog" class="mass-confirm-dialog" aria-labelledby="massConfirmTitle" aria-describedby="massConfirmDescription">
       <h2 id="massConfirmTitle">Confirmer la suppression</h2>

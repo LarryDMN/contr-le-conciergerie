@@ -69,7 +69,7 @@
       const select = $(id);
       if (!select) return;
       if (state[field] && !entries.some(([value]) => value === state[field])) state[field] = '';
-      const signature = JSON.stringify(entries);
+      const signature = JSON.stringify([emptyLabel, entries]);
       if (select.dataset.options !== signature) {
         select.innerHTML = `<option value="">${escapeHTML(emptyLabel)}</option>` + entries.map(([value, label]) =>
           `<option value="${escapeHTML(value)}">${escapeHTML(label)}</option>`).join('');
@@ -113,7 +113,8 @@
         b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt)).map(controlProjection);
       const buildings = new Map();
       records.forEach(record => { if (!buildings.has(record.building)) buildings.set(record.building, record.name); });
-      fillSelect('controlBuildingFilter', [...buildings].sort((a, b) => a[1].localeCompare(b[1], 'fr')), 'Tous les immeubles', state, 'building');
+      fillSelect('controlBuildingFilter', [...buildings].sort((a, b) => a[1].localeCompare(b[1], 'fr')),
+        type === 'bureaux' ? 'Tous les bureaux' : 'Tous les immeubles', state, 'building');
       fillSelect('controlYearFilter', [...new Set(records.map(record => record.year))].sort().reverse().map(year => [year, year]), 'Toutes les années', state, 'year');
       fillSelect('controlMonthFilter', monthNames.map((name, index) => [String(index + 1).padStart(2, '0'), name]), 'Tous les mois', state, 'month');
       if ($('controlSearch').value !== state.query) $('controlSearch').value = state.query;
@@ -140,6 +141,12 @@
                 <span>${rated} / ${total}</span></span>
               ${record.photosRemovedAt ? '<span class="photos-removed-list">Photos retirées</span>' : ''}
             </button>
+            <div class="saved-control-actions">
+              <button type="button" class="button button-primary" data-download-control="${escapeHTML(id)}"
+                aria-label="Télécharger le PDF de ${escapeHTML(name)}, contrôle du ${escapeHTML(date)}">Télécharger le PDF</button>
+              <button type="button" class="button button-secondary" data-delete-control="${escapeHTML(id)}"
+                aria-label="Supprimer le contrôle de ${escapeHTML(name)}, du ${escapeHTML(date)}">Supprimer</button>
+            </div>
           </div>`).join('') || `<p class="list-empty">${records.length ? 'Aucun contrôle ne correspond à ces filtres.' : 'Aucun contrôle enregistré dans cette section.'}</p>`;
         $('controlList').scrollTop = 0;
         controlSignature = signature;
