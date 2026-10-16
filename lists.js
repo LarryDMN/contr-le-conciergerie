@@ -9,7 +9,7 @@
   function create({ controls, archives, typeLabels, buildingName, displayDate, ratedCount, escapeHTML,
     catalogs = {},
     itemCount = record => Object.keys(record.rows || {}).length,
-    versionOf = record => record.updatedAt, onChange = () => {} }) {
+    versionOf = record => record.updatedAt }) {
     const $ = id => document.getElementById(id);
     const states = new Map(Object.keys(typeLabels).map(type => [type, {
       building: '', year: '', month: '', query: '', page: 0, selected: new Set()
@@ -146,7 +146,7 @@
             <div class="saved-control-actions">
               <button type="button" class="button button-primary" data-download-control="${escapeHTML(id)}"
                 aria-label="Télécharger le PDF de ${escapeHTML(name)}, contrôle du ${escapeHTML(date)}">Télécharger le PDF</button>
-              <button type="button" class="button button-secondary" data-delete-control="${escapeHTML(id)}"
+              <button type="button" class="button button-danger" data-delete-control="${escapeHTML(id)}"
                 aria-label="Supprimer le contrôle de ${escapeHTML(name)}, du ${escapeHTML(date)}">Supprimer</button>
             </div>
           </div>`).join('') || `<p class="list-empty">${records.length ? 'Aucun contrôle ne correspond à ces filtres.' : 'Aucun contrôle enregistré dans cette section.'}</p>`;
@@ -167,7 +167,7 @@
           <p class="archive-meta">PDF actualisé le ${escapeHTML(generated)}</p></div>
         <div class="archive-actions"><button type="button" class="button button-secondary" data-preview-archive="${id}">Aperçu</button>
           <button type="button" class="button button-primary" data-download-archive="${id}">Télécharger</button>
-          <button type="button" class="button button-secondary" data-delete-archive="${id}">Supprimer</button></div></article>`;
+          <button type="button" class="button button-danger" data-delete-archive="${id}">Supprimer</button></div></article>`;
     }
 
     function archiveTree(page) {
@@ -210,13 +210,11 @@
     function clearControls(type = activeType) {
       states.get(type).selected.clear();
       if (type === activeType) updateSelection('control', states.get(type), visibleControls, 'data-select-control');
-      onChange();
     }
 
     function clearArchives() {
       archiveState.selected.clear();
       updateSelection('archive', archiveState, visibleArchives, 'data-select-archive');
-      onChange();
     }
 
     function bind() {
@@ -237,7 +235,6 @@
           const state = getState();
           getVisible().forEach(id => { if (event.target.checked) state.selected.add(id); else state.selected.delete(id); });
           updateSelection(prefix, state, getVisible(), `data-select-${prefix}`);
-          onChange();
         });
         $(`${prefix}PreviousPage`).addEventListener('click', () => { getState().page = Math.max(0, getState().page - 1); render(); });
         $(`${prefix}NextPage`).addEventListener('click', () => { getState().page += 1; render(); });
@@ -248,7 +245,6 @@
           const id = input.getAttribute(`data-select-${prefix}`);
           if (input.checked) state.selected.add(id); else state.selected.delete(id);
           updateSelection(prefix, state, getVisible(), `data-select-${prefix}`);
-          onChange();
         });
       });
       $('clearControlSelection').addEventListener('click', () => clearControls());

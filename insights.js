@@ -88,7 +88,7 @@
     return { previousId: prior?.id || null, previousDate: prior?.date || null, byRow };
   }
 
-  function stats({ controls = [], anomalies = [], catalogs = {}, templateFor,
+  function stats({ controls = [], anomalies = [], catalogs = {},
     sort = 'anomalies', type = 'conciergerie' } = {}) {
     const records = values(controls);
     const anomaliesList = values(anomalies);

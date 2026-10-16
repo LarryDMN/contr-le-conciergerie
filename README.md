@@ -1,6 +1,6 @@
 # Contrôles de conciergerie et d'entretien de bureaux
 
-Application web en français pour remplir un contrôle sur smartphone, tablette ou ordinateur. L'accueil propose **Contrôle conciergerie**, **Contrôle entretien de bureaux** et l'accès aux **Dossiers** de PDF archivés. Les données, photos et PDF sont conservés localement dans IndexedDB ; aucun compte ni serveur applicatif n'est requis.
+Application web en français pour remplir un contrôle sur smartphone, tablette ou ordinateur. L'accueil présente deux activités : **Contrôle conciergerie** et **Contrôle entretien de bureaux**. Les données, photos et PDF sont conservés localement dans IndexedDB ; aucun compte ni serveur applicatif n'est requis.
 
 Le formulaire de conciergerie reprend les 30 lignes du « Modèle de contrôle des conciergeries », dans leur ordre d'origine. Chaque bureau utilise sa propre checklist définie dans `data/bureaux.js`. Le bureau **Bona Créations SA – Rolle (A-One)** dispose des 21 lignes et des trois zones fournies, avec leur fréquence d'entretien. Chaque ligne permet de choisir une note, d'écrire une remarque et de joindre plusieurs photos. Un bureau sans checklist affiche **Modèle à venir** ; aucune ligne supplémentaire n'est inventée.
 
@@ -31,15 +31,19 @@ Conserver l'ensemble du dossier, avec les fichiers suivants à la racine et les 
 
 Pour un essai sur ordinateur, un serveur statique local suffit, par exemple `python3 -m http.server 8000` lancé depuis ce dossier, puis l'ouverture de `http://localhost:8000`. Le service worker fonctionne sur HTTPS ou sur `localhost`, pas sur une adresse HTTP ordinaire ni sur `file://`. Le serveur statique sert seulement les fichiers : les données restent dans le navigateur.
 
-## Naviguer dans une section
+## Structure des pages
 
-Depuis l'accueil, ouvrir **Contrôle conciergerie** ou **Contrôle entretien de bureaux**. Le menu de la section contient exactement trois choix :
+L'accueil contient deux cartes simples, une par activité. Les commandes **Dossiers**, **Exporter** et **Importer** sont regroupées à part. Chaque section ouvre un menu de trois choix, identifiés par une icône et un libellé :
 
 - **Nouveau contrôle** : ouvrir directement le formulaire pour commencer une visite ;
 - **Suivi des anomalies** : consulter les lignes notées 3 ou 4 et suivre leur réglage ;
 - **Mes contrôles** : retrouver les contrôles enregistrés, leurs PDF et les actions de gestion de masse.
 
-La liste des contrôles apparaît uniquement dans **Mes contrôles**. Elle n'occupe plus de place dans le formulaire ni dans le menu. Les commandes de navigation permettent de revenir au menu de la section ou à l'accueil. Le bouton **Tableau de bord** de l'en-tête ouvre les statistiques de l'activité choisie ; il laisse les trois choix du menu inchangés. **Dossiers**, l'export et l'import JSON restent accessibles depuis l'accueil.
+Le titre commun indique l'emplacement, par exemple **Contrôle conciergerie > Mes contrôles**. Le bouton **Retour**, toujours au même endroit, permet de revenir à la page précédente ; depuis le menu d'une section ou **Dossiers**, il ramène à l'accueil. Le logo permet aussi de retrouver l'accueil. Le bouton secondaire **Tableau de bord** de l'en-tête ouvre les statistiques de l'activité choisie et laisse les trois choix du menu inchangés.
+
+La liste des contrôles apparaît uniquement dans **Mes contrôles**, avec les filtres, les sélections, la pagination et le retrait des photos anciennes. Le formulaire conserve le choix du site, les notes, remarques, photos et la duplication. Sa progression et la légende des notes restent visibles dans l'en-tête fixe ; **Enregistrer** et **Générer le PDF** restent regroupés en bas de l'écran.
+
+Les pages partagent les couleurs du logo, les tailles de texte et les espacements. Les boutons principaux, secondaires et de suppression ont chacun un style commun. Une suppression est placée en dernier, signalée en rouge et soumise à confirmation. Les commandes tactiles mesurent au moins 44 pixels de haut.
 
 ## Remplir un nouveau contrôle
 
@@ -50,8 +54,6 @@ La liste des contrôles apparaît uniquement dans **Mes contrôles**. Elle n'occ
 5. Ajouter, si nécessaire, le texte et les photos de **COMMENTAIRES - REMARQUES**. Les sections peuvent être repliées ; leurs compteurs montrent le nombre de lignes notées. Le résumé final reprend les lignes notées 3 ou 4, leurs remarques et leur nombre de photos.
 
 Chaque modification est sauvegardée automatiquement, y compris le brouillon créé avant de choisir une conciergerie. L'indicateur de sauvegarde permet de vérifier que l'écriture a terminé. **Enregistrer** sauvegarde aussi un PDF dans **Dossiers** ; **Terminer le contrôle** effectue la même sauvegarde et marque la fin du contrôle. **Générer le PDF** actualise aussi l'archive et télécharge le document. La sauvegarde automatique des champs ne régénère pas le PDF à chaque frappe : après une modification, appuyer sur **Enregistrer** pour actualiser le document archivé. En cas d'erreur de stockage, conserver la page ouverte et exporter une copie avant de la quitter.
-
-Le nom de l'immeuble ou du bureau et la progression restent visibles dans l'en-tête fixe. La barre inférieure garde **Enregistrer** et **Générer le PDF** accessibles pendant le défilement, sur téléphone comme sur tablette.
 
 Dans **Mes contrôles**, la liste est triée par date décroissante et n'affiche que les contrôles de la section choisie, par pages de 50. Le champ `type` vaut `conciergerie` ou `bureaux`. Les contrôles créés avant cette version reçoivent automatiquement le type `conciergerie`, sans perdre leur adresse, notes ou photos.
 
@@ -125,15 +127,13 @@ Une sélection fait apparaître trois actions :
 
 **Exporter d'abord (JSON)** depuis la confirmation télécharge une sauvegarde ; cela ne confirme pas la suppression. Vérifier le téléchargement, puis choisir explicitement **Confirmer la suppression** ou **Annuler**. Une annulation laisse les données en place. Une suppression confirmée se restaure uniquement à partir d'une sauvegarde JSON contenant les données retirées.
 
-## Libérer de la place
+## Retirer les photos anciennes
 
-Pour retirer uniquement les photos d'anciens contrôles, saisir **Contrôles datés avant le** dans l'accueil puis utiliser **Supprimer les photos avant cette date**. Cette action concerne les contrôles **des deux types** dont la **date du contrôle est strictement antérieure** à cette date, et qui contiennent encore des photos. Un contrôle daté du jour limite est conservé avec ses photos. La confirmation indique le nombre exact de contrôles concernés et propose aussi un export préalable.
+Dans **Mes contrôles**, déplier les options de retrait des photos anciennes, saisir **Contrôles datés avant le**, puis utiliser **Supprimer les photos avant cette date**. Cette action concerne les contrôles **des deux types** dont la **date du contrôle est strictement antérieure** à cette date, et qui contiennent encore des photos. Un contrôle daté du jour limite est conservé avec ses photos. La confirmation indique le nombre exact de contrôles concernés et propose aussi un export préalable.
 
 La suppression des photos conserve les notes, remarques, informations du contrôle et le PDF déjà archivé, qui peut toujours contenir les photos du dernier enregistrement. Une indication historique sur la fiche signale le retrait des photos ; elle ne bloque pas l'ajout de nouvelles photos. **Enregistrer** ou **Générer le PDF** actualise normalement l'archive : après un retrait, cette nouvelle version ne contiendra plus les photos supprimées.
 
 Les photos conservées dans le suivi des anomalies restent indépendantes : retirer celles d'un contrôle ne les retire pas du suivi. Ce maintien permet de comprendre et de traiter une anomalie après nettoyage ou suppression du contrôle d'origine.
-
-L'accueil et **Mes contrôles** affichent **Espace utilisé sur cet appareil**, avec le total **Photos et PDF** et le détail de chaque catégorie, en Mo. Cette mesure porte sur **les deux activités**, y compris les archives et anomalies sans contrôle d'origine. Le calcul additionne la taille des photos des contrôles, des copies conservées pour les anomalies, des photos de correction et des blobs PDF stockés. Il n'inclut pas le texte, les métadonnées, le surcoût d'IndexedDB ni les fichiers téléchargés sur l'ordinateur. Il s'agit donc d'une mesure des pièces jointes conservées par l'application, pas du quota total utilisé par le navigateur. Supprimer les photos d'un contrôle conserve l'espace occupé par ses PDF et par les photos du suivi ; supprimer le contrôle et son archive conserve aussi les pièces jointes de ses anomalies.
 
 ## Dossiers et PDF enregistrés
 
@@ -149,7 +149,7 @@ Le document reprend le logo horizontal, le type de contrôle, l'immeuble ou le b
 
 > E. Blanco SA – Route des Jeunes 55 – 1212 Grand-Lancy – Suisse – Tél 022.343.66.07 – info@eblanco.ch – www.eblanco.ch
 
-Le pied de page bureaux utilise la valeur `officeFooter` de `config.js`, avec ces coordonnées sans la partie téléphone.
+Le pied de page bureaux est dérivé automatiquement de cette même valeur, sans son segment téléphone. Modifier les coordonnées une seule fois dans `footer` suffit pour les deux activités.
 
 Les bibliothèques PDF sont copiées dans le dépôt : la génération et le téléchargement fonctionnent sans réseau une fois l'application disponible hors connexion. Un PDF est un document figé ; il ne remplace pas un export JSON pour restaurer un contrôle éditable et ses photos.
 
@@ -163,7 +163,7 @@ Ce bouton est masqué sur téléphone et tablette ainsi que sur Safari, Firefox 
 
 ## Sauvegarder et restaurer
 
-**Exporter** télécharge une sauvegarde JSON comprenant les contrôles des deux types, leurs photos, les PDF archivés et le suivi des anomalies, y compris les anomalies dont le contrôle a été supprimé. Leurs statuts, dates de réglage et photos de correction sont sauvegardés. Les PDF sont encodés en base64 dans le fichier JSON, ce qui augmente sa taille. Conserver régulièrement ces fichiers hors du navigateur, par exemple dans les fichiers de l'appareil ou sur un support de sauvegarde.
+**Exporter** depuis l'accueil télécharge une sauvegarde JSON comprenant les contrôles des deux types, leurs photos, les PDF archivés et le suivi des anomalies, y compris les anomalies dont le contrôle a été supprimé. Leurs statuts, dates de réglage et photos de correction sont sauvegardés. Pour sauvegarder un seul contrôle ou quelques fiches, les sélectionner dans **Mes contrôles**, puis utiliser **Exporter la sélection (JSON)**. Les PDF sont encodés en base64 dans le fichier JSON, ce qui augmente sa taille. Conserver régulièrement ces fichiers hors du navigateur, par exemple dans les fichiers de l'appareil ou sur un support de sauvegarde.
 
 **Importer** permet de sélectionner un export pour restaurer les données, les PDF et les anomalies ; attendre la fin de l'import avant de fermer la page, puis vérifier **Mes contrôles**, **Dossiers** et les deux onglets du suivi. Si un contrôle possède déjà le même identifiant, l'import crée une copie et préserve l'existant ; son archive et ses anomalies sont rattachées à la copie. Un fichier invalide est rejeté entièrement, sans modifier les données. Les anciens exports v1 et v2 restent acceptés ; leurs lignes notées 3 ou 4 sont ajoutées au suivi en statut **En cours**. Un contrôle sans `type` devient un contrôle de conciergerie. Les nouveaux exports utilisent la version 3.
 
@@ -177,7 +177,7 @@ Pour imprimer une archive figée, utiliser **Télécharger** dans **Dossiers**, 
 
 ## Adapter le formulaire
 
-Modifier `config.js` pour changer les pieds de page (`footer` pour la conciergerie, `officeFooter` pour les bureaux), les notes communes ou le modèle de conciergerie. Pour ce modèle, les propriétés `sections`, `groups` et `items` définissent l'ordre du formulaire. Ajouter une ligne avec un **nouvel identifiant `id` unique**. Ne pas renommer les identifiants de lignes déjà utilisées : les contrôles sauvegardés s'appuient sur eux pour retrouver leurs notes, remarques et photos. Renommer seulement `label` ou `title` pour changer un texte. Les checklists propres aux bureaux se modifient dans `data/bureaux.js`, selon la procédure ci-dessous.
+Modifier `config.js` pour changer le pied de page commun `footer`, les notes communes ou le modèle de conciergerie. La propriété calculée `officeFooter` retire uniquement le segment téléphone pour les documents de bureaux. Pour le modèle de conciergerie, les propriétés `sections`, `groups` et `items` définissent l'ordre du formulaire. Ajouter une ligne avec un **nouvel identifiant `id` unique**. Ne pas renommer les identifiants de lignes déjà utilisées : les contrôles sauvegardés s'appuient sur eux pour retrouver leurs notes, remarques et photos. Renommer seulement `label` ou `title` pour changer un texte. Les checklists propres aux bureaux se modifient dans `data/bureaux.js`, selon la procédure ci-dessous.
 
 ## Ajouter ou modifier un bureau
 
@@ -224,9 +224,37 @@ Lors de la sélection, le contrôle conserve son propre exemplaire de l'identifi
 
 Ce fichier est chargé par une balise `script` classique, sans module JavaScript ni requête à un serveur. Conserver le sous-dossier `data` lors d'une copie ou d'une publication pour que la liste reste disponible en ouverture directe et hors connexion.
 
+## Revue de structure et éléments retirés
+
+La revue a été faite sur `main` avant modification : parcours des sept vues, commandes de navigation, fonctions JavaScript, styles, catalogues, fichiers chargés et cache hors connexion. Aucun fichier applicatif entier ni fonction métier sans appel n'a été identifié. Les deux catalogues contiennent chacun une entrée, sans doublon d'identifiant, de nom ou d'adresse renseignée.
+
+La vérification de reprise confirme que `main` (`abeef7d`) contient les PR n°1 à 7 fusionnées. Les fonctions ci-dessous sont déjà présentes et sont conservées, sans nouvelle implémentation :
+
+| Domaine | État dans `main` | Introduction |
+| --- | --- | --- |
+| Navigation et suivi des anomalies | Trois choix, formulaire existant, statuts persistants, liste uniquement dans **Mes contrôles** | PR n°6 |
+| Gestion de masse | Sélection, filtres, export, suppressions confirmées et pagination de 50 | PR n°4 |
+| Comparaison précédente | Même site et activité, notes et flèches, nouvelle ligne, PDF | PR n°7 |
+| Tableau de bord | Moyenne du dernier contrôle, anomalies ouvertes, dates, tris et accès à la liste filtrée | PR n°7 |
+
+Les éléments suivants ont été retirés ou regroupés :
+
+- **Décoration et textes répétés des pages** : les cartes d'accueil et le menu présentent les destinations directement ; un titre commun indique la section et la page.
+- **Navigation répétée** : les commandes de retour disparates sont remplacées par un bouton **Retour** contextuel, placé au même endroit.
+- **Ancienne présentation en barre latérale et styles sans élément associé** : retrait de `.sidebar`, `.sidebar-heading`, des anciennes contraintes superposées des listes et des sélecteurs de photos, anomalies ou impression sans élément correspondant. Les contrôles sont exclusivement affichés dans **Mes contrôles** ; la variante `button-quiet` est regroupée dans `button-secondary`.
+- **Commandes Importer/Exporter répétées dans le formulaire** : l'import et la sauvegarde complète restent dans l'accueil ; l'export d'une ou plusieurs fiches se fait depuis la sélection de **Mes contrôles**.
+- **Bouton d'ouverture répété sur les anomalies** : le titre et le clic sur la carte ouvrent toujours le contrôle d'origine ; le deuxième bouton en bas de carte est retiré.
+- **Indicateur d'espace utilisé, ses textes, ses calculs et leurs mises à jour** : suppression complète pour alléger l'interface et les traitements pendant la saisie.
+- **Adresse par défaut et numéro de version de `config.js` inutilisés** : l'adresse de Prulay n'est désormais définie que dans `data/conciergeries.js`.
+- **Coordonnées répétées du pied de page bureaux** : elles sont calculées depuis le pied de page commun, sans son segment téléphone.
+- **Adaptateurs de fonctions sans logique propre et paramètres inactifs** : retrait des fonctions intermédiaires `deleteControl`, `deleteArchive` et `printControl` au profit des appels communs, en conservant leurs boutons ; retrait du rappel `onChange` inutilisé dans les listes et du paramètre inutilisé des statistiques.
+- **Traitements répétés** : création des métadonnées d'archive, téléchargement d'un fichier et ouverture d'une photo regroupés ; gestion directe de la date à la place d'une boucle portant sur ce seul champ.
+
+Les listes de bâtiments et leurs coordonnées restent définies une seule fois dans leurs catalogues respectifs. Les informations et modèles copiés dans les contrôles, PDF et anomalies sont des **instantanés historiques nécessaires** : ils restent inchangés si une entrée de catalogue est modifiée ou supprimée. Les libellés répétés dans des zones différentes des checklists restent également présents. Cette réorganisation ne change ni le schéma IndexedDB ni le format des sauvegardes, et ne supprime aucune donnée enregistrée.
+
 ## Publier une mise à jour
 
-Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v7`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `office-model.js`, `anomalies.js`, `insights.js`, `style.css`, `config.js` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=7` à `?v=8`, avec le cache `v8`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
+Lors d'une publication de nouveaux fichiers, augmenter le suffixe de version de `CACHE_NAME` dans `sw.js` (actuellement `v8`), afin que le cache hors connexion soit remplacé. Si `app.js`, `lists.js`, `office-model.js`, `anomalies.js`, `insights.js`, `style.css`, `config.js` ou `pdf.js` change, augmenter également leur paramètre de version dans `index.html` et dans la liste `ASSET_URLS` de `sw.js`, par exemple de `?v=8` à `?v=9`, avec le cache `v9`. Garder ces versions synchronisées évite de charger les anciens fichiers depuis le cache précédent.
 
 Si seule la liste `data/conciergeries.js` ou le modèle `data/bureaux.js` change, augmenter au minimum la version du cache dans `sw.js`. Ces mises à jour ne suppriment pas les contrôles dans IndexedDB. Ouvrir la nouvelle version avec connexion, attendre la disponibilité hors connexion, puis recharger la page avec connexion. Vérifier les nouvelles données et le fonctionnement hors ligne avant une visite sur place.
 
@@ -242,7 +270,7 @@ Ces scénarios sont à exécuter avec un navigateur récent sur l'appareil chois
 6. **Hors connexion :** depuis HTTPS ou `localhost`, attendre l'état hors connexion prêt. Couper le réseau, recharger, modifier une remarque puis enregistrer. Vérifier que l'application, le logo et la liste sont disponibles, que le PDF est généré, qu'il apparaît dans **Dossiers** et qu'il se télécharge sans réseau. Recharger de nouveau et vérifier les données.
 7. **Dossier sur ordinateur :** sur Chrome ou Edge compatible, choisir un dossier de test, enregistrer un contrôle et vérifier le fichier écrit. Enregistrer à nouveau avec le même nom : le fichier doit être remplacé. Recharger et vérifier la mémorisation du dossier. Retirer l'autorisation dans le navigateur puis vérifier que l'application propose de la redonner lors d'une action explicite et garde son archive IndexedDB même si l'écriture disque échoue. Sur téléphone, Safari ou Firefox, vérifier que le bouton est masqué et que le téléchargement depuis **Dossiers** reste possible.
 8. **Gestion de trois contrôles :** dans un profil de test, créer trois contrôles avec des notes, remarques, photos et PDF. Ouvrir **Mes contrôles**, les sélectionner et utiliser **Exporter la sélection (JSON)** ; vérifier que le JSON contient exactement ces trois contrôles, leurs archives et leurs anomalies. Demander leur suppression, annuler et vérifier qu'ils sont tous conservés. Recommencer, vérifier le nombre annoncé, exporter depuis la confirmation et confirmer ensuite la suppression. Les trois contrôles et leurs PDF doivent disparaître ensemble ; leurs anomalies doivent rester dans le suivi avec **contrôle supprimé**. Importer la sauvegarde et vérifier la restauration, sans écraser les données déjà présentes.
-9. **Photos seulement et date limite :** sélectionner un contrôle avec des photos de ligne et de commentaires, puis annuler la confirmation de retrait. Vérifier que les photos restent présentes. Confirmer ensuite : les notes, remarques et PDF doivent rester inchangés, les photos doivent disparaître et la fiche doit signaler leur retrait après rechargement. Depuis l'accueil, choisir une date limite avec des contrôles de chaque type avant, le jour même et après cette date ; seuls ceux strictement antérieurs avec des photos doivent être concernés. Vérifier la baisse de l'espace affiché et la conservation des PDF.
+9. **Photos seulement et date limite :** sélectionner un contrôle avec des photos de ligne et de commentaires, puis annuler la confirmation de retrait. Vérifier que les photos restent présentes. Confirmer ensuite : les notes, remarques et PDF doivent rester inchangés, les photos doivent disparaître et la fiche doit signaler leur retrait après rechargement. Dans **Mes contrôles**, déplier le retrait des photos anciennes et choisir une date limite avec des contrôles de chaque type avant, le jour même et après cette date ; seuls ceux strictement antérieurs avec des photos doivent être concernés. Vérifier la conservation des PDF.
 10. **Dossiers en masse :** sélectionner plusieurs PDF, vérifier le nombre dans la confirmation, annuler puis confirmer la suppression. Les contrôles et leurs photos doivent rester présents. Vérifier aussi la sauvegarde proposée avant suppression et sa restauration, ainsi que la conservation des copies déjà téléchargées.
 11. **1 000 contrôles et affichage mobile :** importer un JSON de test avec 1 000 contrôles fictifs dans un profil jetable. À 320 px de largeur, vérifier que seulement 50 lignes sont affichées, que changer de page, filtrer par immeuble/année/mois et rechercher restent réactifs, et qu'aucune commande ne déborde horizontalement. Sélectionner des contrôles sur deux pages, changer un filtre et vérifier que le compteur garde la sélection ; vider la sélection puis vérifier qu'aucune suppression ne peut être déclenchée sans choix.
 12. **Contrôle bureaux complet avec photo :** à 320 px, créer un contrôle puis choisir Bona Créations. Vérifier les champs d'adresse et de concierge vides et en lecture seule, la date modifiable et l'absence de téléphone. Noter les 21 lignes, dont une en 4 ; vérifier le rappel de photo, ajouter une photo et une remarque puis terminer le contrôle. Recharger et vérifier les 21 notes, la photo, la remarque et les fréquences. Télécharger le PDF dans **Dossiers > Contrôle entretien de bureaux > Bona Créations SA – Rolle (A-One) > année** : vérifier les trois titres de zones, les 21 lignes, les fréquences, la photo, le logo et l'absence de numéro de téléphone. Modifier une remarque puis enregistrer : l'unique PDF de ce contrôle doit être remplacé.
@@ -250,18 +278,39 @@ Ces scénarios sont à exécuter avec un navigateur récent sur l'appareil chois
 14. **Création et migration des anomalies :** créer un contrôle avec une ligne notée 4, une remarque et une photo. Revenir au menu puis ouvrir **Suivi des anomalies** : retrouver cette ligne dans **En cours**, avec son bâtiment, sa zone, sa note, sa remarque, sa photo et sa date d'origine. L'ouvrir doit retrouver le bon contrôle. Dans un profil contenant d'anciens contrôles en 3 ou 4, vérifier leur apparition automatique en cours, sans modification des contrôles ni des PDF. Vérifier aussi les filtres de bâtiment et de texte et la séparation entre activités.
 15. **Réglage et réouverture :** marquer une anomalie réglée avec une date et une photo de correction. Annuler d'abord et vérifier qu'elle reste en cours. Valider ensuite et la retrouver dans **Réglées**, puis recharger et vérifier la persistance de la date et de la photo. Remettre l'anomalie en cours : elle doit changer d'onglet tout en conservant son dernier réglage. Passer la note du contrôle à 1 ou 2 doit laisser son historique disponible dans le suivi.
 16. **Suivi après suppression et sauvegarde :** supprimer le contrôle d'une anomalie réglée ; vérifier que l'anomalie, son relevé et sa photo de correction restent disponibles avec **contrôle supprimé**, après rechargement également. Exporter puis importer dans un profil vide et vérifier leur restauration. Importer un ancien JSON v1 ou v2 doit créer les anomalies en cours. Réimporter une sauvegarde récente doit conserver l'existant et les liens des copies.
-17. **Mes contrôles, PDF et espace :** vérifier que la liste apparaît seulement dans **Mes contrôles**, jamais dans le menu ni dans le formulaire. Télécharger un PDF existant depuis sa ligne et vérifier son contenu inchangé ; supprimer seulement l'archive puis télécharger depuis la liste pour vérifier sa régénération. Vérifier les filtres, les 50 lignes par page, les actions individuelles et de masse, ainsi que l'espace occupé par les photos, les PDF et les pièces jointes des anomalies. Ouvrir une fiche puis revenir au menu sans afficher de liste dans le formulaire.
+17. **Mes contrôles et PDF :** vérifier que la liste apparaît seulement dans **Mes contrôles**, jamais dans le menu ni dans le formulaire. Télécharger un PDF existant depuis sa ligne et vérifier son contenu inchangé ; supprimer seulement l'archive puis télécharger depuis la liste pour vérifier sa régénération. Vérifier les filtres, les 50 lignes par page et les actions individuelles et de masse. Ouvrir une fiche puis revenir à la liste sans afficher de liste dans le formulaire.
 18. **Navigation et anomalies à 320 px hors connexion :** à 320 px, vérifier les deux menus, **Mes contrôles**, les deux onglets d'anomalies et la fenêtre de réglage, sans défilement horizontal et avec des commandes accessibles. Après mise en cache, couper le réseau et ouvrir un nouvel onglet : créer une anomalie avec photo, la régler avec photo de correction, recharger, l'exporter et vérifier la persistance des statuts, la navigation et les téléchargements PDF sans réseau.
 19. **Comparaison et PDF :** créer deux contrôles à des dates successives pour le même bâtiment. Noter deux lignes **2** et **3** lors de la première visite, puis **3** et **2** lors de la seconde. Vérifier **Précédent : 2** avec la date et **↓** rouge sur la première ligne, **Précédent : 3** avec **↑** bleu sur la seconde, et aucun repère à note identique. Générer le PDF et vérifier les notes précédentes et la dégradation. Refaire le parcours en bureaux ; aucun contrôle de conciergerie ne doit servir de visite précédente.
 20. **Limites de la comparaison :** dans un profil de test, importer une visite antérieure dont un libellé exact est absent, puis vérifier **Nouvelle ligne**. Vérifier une ligne antérieure non notée, un libellé répété dans deux zones, un contrôle sans visite précédente, une visite future exclue et un contrôle rouvert comparé uniquement aux dates antérieures. Créer une seconde visite du jour pour vérifier la comparaison pendant sa création, puis vérifier la règle strictement antérieure après réouverture. Exporter, importer et vérifier la conservation des libellés historiques.
 21. **Statistiques et filtres :** prévoir des visites avec des notes **1** et **2** sur leur dernier contrôle : vérifier **1,5** et sa date. Comparer les compteurs avec **Suivi des anomalies**, régler une anomalie puis revenir au tableau de bord : le compteur doit baisser. Vérifier le total de contrôles et la dernière date toutes activités confondues, les trois tris et le clic vers **Mes contrôles** filtré sur le bon site, avec les autres filtres et sélections vidés.
 22. **Carte sans contrôle et hors connexion :** dans une copie de test du catalogue, ajouter un site sans visite : sa carte doit afficher **Aucun contrôle**, sans augmenter le nombre de visites ni créer une moyenne. Supprimer le contrôle d'une anomalie ouverte : elle doit rester comptée. À 320 px, vérifier les cartes, les tris et les repères de comparaison sans débordement ; après mise en cache, ouvrir un nouvel onglet hors connexion et vérifier la comparaison, les statistiques et le PDF.
+23. **Repérage et retours :** depuis l'accueil, parcourir le menu puis chaque page des deux activités, le tableau de bord et **Dossiers**. Vérifier les titres **section > page**, les trois choix du menu et les icônes lisibles. Ouvrir une fiche depuis **Mes contrôles**, puis depuis une anomalie : **Retour** doit retrouver la page d'origine. Vérifier l'accès à l'accueil et aux utilitaires JSON. À 320 px, la progression, la légende des notes et les actions de bas d'écran doivent rester accessibles sans défilement horizontal, avec des commandes d'au moins 44 pixels.
+24. **Conservation avant/après mise à jour :** dans un profil de test contenant les deux activités, relever le nombre de contrôles, de PDF et d'anomalies, puis exporter les données avant de remplacer les fichiers applicatifs. Après chargement de la nouvelle version et après rechargement, comparer ces nombres et le contenu des contrôles, photos, statuts et PDF. La simple mise à jour de l'interface ne doit ajouter, modifier ni supprimer ces données. Créer ensuite un contrôle complet avec une anomalie et une photo ; le retrouver dans **Mes contrôles** et **Suivi des anomalies**, générer son PDF et répéter le parcours hors connexion.
 
 Pour compléter la validation, dupliquer un contrôle et vérifier l'indépendance de la copie. Dans une copie de test du dossier, modifier puis retirer l'entrée de la liste des conciergeries et vérifier que les contrôles existants conservent leurs informations. Replier une section puis imprimer le formulaire en A4 portrait pour vérifier que la structure papier reste complète.
 
 Utiliser des photos de test sans information sensible. Il n'est pas nécessaire de créer des données d'exemple dans l'application utilisée en production.
 
 ## Résultats de validation
+
+### Revue de structure et interface épurée
+
+Les vérifications ont utilisé Chromium sous Linux, avec un écran tactile simulé de **320 × 850 px**, la langue `fr-CH` et le fuseau `Europe/Zurich` :
+
+- mise à jour depuis `main` dans le même profil : **7 contrôles avant et après, 4 PDF et 3 anomalies** ; champs enregistrés, notes, photos et statuts identiques, et empreintes SHA-256 des quatre PDF inchangées avant toute création ou suppression de test ;
+- parcours des deux activités depuis l'accueil, menus de trois choix, titres **section > page**, retours contextuels, tableau de bord ouvrant une liste filtrée, liste visible uniquement dans **Mes contrôles** et duplication sans modification de l'original ;
+- contrôles complets **30/30** en conciergerie et **21/21** en bureaux, chacun avec remarque, anomalie et photo, sauvegarde après rechargement et PDF téléchargé de **trois pages** ; comparaison précédente et repères conservés, zones et fréquences des bureaux présentes et téléphone absent ;
+- anomalie retrouvée dans le suivi, ouverture du contrôle puis retour, annulation du réglage sans effet, réglage avec photo de correction et compteur du tableau de bord actualisé ;
+- sélection de trois contrôles, export avec leurs PDF, annulation et touche Échap sans modification, export proposé dans la confirmation puis suppression des trois contrôles et PDF ;
+- restauration de cette sélection avec les trois PDF identiques par SHA-256 ; exports complets répétés sur `main` et sur la branche, dans des profils isolés et des copies du profil historique, sans différence de contenu métier ;
+- **Dossiers** : huit PDF après les opérations du scénario, aperçu, téléchargement d'un ancien PDF identique par SHA-256 et annulation d'une suppression de huit archives sans modification ;
+- nouvel onglet hors connexion après vidage du cache HTTP : navigation, comparaison, contrôle, anomalie réglée et photo de correction accessibles ; PDF généré et téléchargé sans réseau, puis neuf contrôles retrouvés après rechargement ;
+- nettoyage des photos depuis **Mes contrôles** : date concernant les deux activités, annulation sans effet, retrait sur une sélection avec marqueur persistant ; contrôles, preuves des anomalies et PDF conservés, vérifiés par SHA-256 ;
+- aucun débordement horizontal à 320 px, commandes d'au moins 44 pixels, légende et progression visibles pendant le défilement du formulaire, actions fixes en bas ; vues également vérifiées à 700 et 1 024 px.
+
+Le test de charge utilise un profil distinct contenant **1 000 contrôles, 1 000 PDF et 1 000 anomalies**, avec processeur ralenti **×4** et écran de 320 px. Chaque liste conserve au maximum **50 fiches dans le DOM**. Les temps mesurés sont **523 ms** pour ouvrir **Mes contrôles**, **175 ms** pour changer de page de contrôles, **46 ms** pour rechercher, **386 ms** pour changer de page d'anomalies et **160 ms** pour changer de page dans **Dossiers**. Ces mesures concernent cette exécution en émulation et ne garantissent pas les mêmes temps sur un téléphone physique.
+
+Les **17 groupes de vérifications** ont réussi, sans erreur JavaScript. La validation concerne Chromium en émulation mobile ; Safari, Firefox et un téléphone physique n'ont pas été exécutés dans cette revue.
 
 ### Comparaison et tableau de bord
 
@@ -331,9 +380,9 @@ Sur la branche `feat/gestion-masse`, **21 vérifications automatisées ont réus
 - quota de stockage simulé : export des modifications en mémoire, retrait des photos et suppression encore disponibles malgré une sauvegarde bloquée ;
 - deux écritures différées pendant une suppression, sans réapparition du contrôle supprimé, avec formulaire à nouveau utilisable après la transaction ;
 - filtres immeuble, année, mois et texte, pages limitées à 50, sélections conservées entre pages et filtres et séparées entre conciergerie et bureaux ;
-- calcul de l'espace des photos et PDF, et ouverture d'une nouvelle page hors connexion avec accès aux contrôles et export d'une sélection.
+- ouverture d'une nouvelle page hors connexion avec accès aux contrôles et export d'une sélection.
 
-La charge de test, injectée dans IndexedDB dans un profil de test, contenait **1 000 contrôles de conciergerie avec une photo chacun**, **5 contrôles de bureaux** et **1 000 PDF légers valides**. Les pièces jointes représentaient 32,425 Mo de photos et 0,808 Mo de PDF ; l'accueil affichait correctement **33,23 Mo**. L'import depuis l'interface a été vérifié séparément avec cinq contrôles et quatre PDF ; le chargement des 1 000 contrôles ne constitue pas un test d'import de ce volume.
+La charge de test, injectée dans IndexedDB dans un profil de test, contenait **1 000 contrôles de conciergerie avec une photo chacun**, **5 contrôles de bureaux** et **1 000 PDF légers valides**. L'import depuis l'interface a été vérifié séparément avec cinq contrôles et quatre PDF ; le chargement des 1 000 contrôles ne constitue pas un test d'import de ce volume.
 
 Avec ce jeu de données et le processeur ralenti, les temps mesurés étaient **538 ms** pour ouvrir la liste, **88 ms** pour changer de page, **59 ms** pour rechercher et **114 ms** pour changer de page dans **Dossiers**. Ces mesures décrivent cette exécution sur navigateur simulé ; elles ne garantissent pas les mêmes temps sur un téléphone physique ou avec des pièces jointes plus volumineuses.
 

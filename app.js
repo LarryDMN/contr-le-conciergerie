@@ -13,6 +13,8 @@
   const itemsFor = subject => templateFor(subject).sections.flatMap(section => section.groups.flatMap(group => group.items));
   let activeType = 'conciergerie';
   let view = 'home';
+  let route = { view: 'home', type: 'conciergerie', controlId: null };
+  const routeHistory = [];
   let config = templateFor(activeType);
   let items = itemsFor(activeType);
   let itemIds = new Set(items.map(item => item.id));
@@ -49,7 +51,6 @@
   let actionBusy = false;
   let pdfBusy = false;
   let mutationBusy = false;
-  let usageDirty = true;
   let directoryHandle;
   let previewURL;
   let noticeTimer;
@@ -243,7 +244,6 @@
       }, ['controls', 'anomalies']);
     }).then(() => {
       anomalyUpdates.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
-      if (anomalyUpdates.length) usageDirty = true;
       snapshots.forEach(({ record, version }) => {
         registeredControls.set(record.id, record);
         if (versions.get(record.id) === version) dirty.delete(record.id);
@@ -283,13 +283,12 @@
 
   function renderList() {
     if (view === 'controls') lists.renderControls(activeType, currentId);
-    renderHome();
   }
 
   function photoButtons(rowId) {
     return `<div class="photo-actions">
-      <button type="button" class="photo-button" data-add-photo="${rowId}" data-camera="true">${cameraIcon} Ajouter une photo</button>
-      <button type="button" class="gallery-button" data-add-photo="${rowId}" aria-label="Choisir des photos dans la galerie">${galleryIcon} Galerie</button>
+      <button type="button" class="button button-secondary photo-button" data-add-photo="${rowId}" data-camera="true">${cameraIcon} Ajouter une photo</button>
+      <button type="button" class="button button-secondary gallery-button" data-add-photo="${rowId}" aria-label="Choisir des photos dans la galerie">${galleryIcon} Galerie</button>
     </div><div class="photo-list" data-photo-list="${rowId}"></div>`;
   }
 
@@ -346,7 +345,7 @@
     list.innerHTML = target.photos.map((photo, index) => `
       <figure class="photo-thumb"><button type="button" data-view-photo="${escapeHTML(photo.id)}" data-photo-row="${rowId}"
         aria-label="Agrandir la photo ${index + 1}"><img src="${escapeHTML(photo.dataUrl)}" alt="Photo ${index + 1} du contrôle" loading="lazy"></button>
-        <button type="button" class="remove-photo" data-remove-photo="${escapeHTML(photo.id)}" data-photo-row="${rowId}"
+        <button type="button" class="button button-danger remove-photo" data-remove-photo="${escapeHTML(photo.id)}" data-photo-row="${rowId}"
           aria-label="Supprimer la photo ${index + 1}" title="Supprimer la photo">×</button></figure>`).join('');
     if (rowId !== 'comments') {
       document.querySelector(`[data-warning="${rowId}"]`).hidden = target.rating !== 4 || target.photos.length > 0;
@@ -420,9 +419,7 @@
     $('#headerControl').hidden = view !== 'control' || pendingOffice;
     $('#controlActions').hidden = view !== 'control' || pendingOffice;
     $('#newControl').disabled = false;
-    $('#workflowTitle').textContent = typeLabels[activeType];
-    $('#workflowEyebrow').textContent = activeType === 'conciergerie' ? 'Modèle de contrôle des conciergeries' : 'Modèle de contrôle de l’entretien de bureaux';
-    $('#workflowDescription').textContent = 'Notez chaque élément, ajoutez vos remarques et documentez avec des photos.';
+    updatePageContext();
     $('#buildingSelectField').hidden = false;
     $('#buildingSelectLabel').textContent = activeType === 'bureaux' ? 'Bureau' : 'Immeuble';
     $('#addressLabel').textContent = activeType === 'bureaux' ? 'Adresse du bureau' : 'Adresse de l’immeuble';
@@ -528,7 +525,6 @@
     const record = makeControl();
     newControlDates.set(record.id, record.date);
     controls.set(record.id, record);
-    usageDirty = true;
     currentId = record.id;
     markChanged(record);
     showView('control');
@@ -555,16 +551,11 @@
     record.createdAt = new Date().toISOString();
     newControlDates.set(record.id, record.date);
     controls.set(record.id, record);
-    usageDirty = true;
     currentId = record.id;
     markChanged(record);
     renderEditor();
     await persistChanges();
     notify('Contrôle dupliqué avec ses notes, remarques et photos.');
-  }
-
-  async function deleteControl() {
-    if (current()) await deleteControls([currentId]);
   }
 
   // Une opération de gestion reste possible lorsque le quota empêche l'autosauvegarde.
@@ -679,7 +670,6 @@
       if (current()) renderEditor();
       else showView('controls');
     }
-    renderHome();
   }
 
   async function deleteControls(ids) {
@@ -709,7 +699,6 @@
         archives.delete(id); dirty.delete(id); versions.delete(id);
       });
       if (selected.includes(currentId)) currentId = sortedControls(activeType)[0]?.id;
-      usageDirty = true;
     });
     refreshManagementViews();
     notify(`${count} contrôle${count > 1 ? 's' : ''} supprimé${count > 1 ? 's' : ''}, avec leurs photos et PDF.`);
@@ -752,7 +741,6 @@
         versions.set(record.id, (versions.get(record.id) || 0) + 1);
         dirty.delete(record.id);
       });
-      usageDirty = true;
     });
     refreshManagementViews();
     notify(`${photoCount} photo${photoCount > 1 ? 's' : ''} retirée${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}. Les PDF sont conservés.`);
@@ -817,7 +805,6 @@
         const record = controls.get(recordId);
         if (!record) return;
         photoTarget(record, rowId).photos.push(photo);
-        usageDirty = true;
         markChanged(record);
         added += 1;
         if (recordId === currentId) { renderPhotos(rowId); refreshDerived(); }
@@ -831,10 +818,14 @@
   function viewPhoto(rowId, id) {
     const photo = photoTarget(current(), rowId).photos.find(photo => photo.id === id);
     if (!photo) return;
-    $('#fullPhoto').src = photo.dataUrl;
     const label = rowId === 'comments' ? 'Commentaires - Remarques' : items.find(item => item.id === rowId).label;
-    $('#fullPhoto').alt = `Photo : ${label}`;
-    $('#photoCaption').textContent = label;
+    openPhoto(photo, label);
+  }
+
+  function openPhoto(photo, caption) {
+    $('#fullPhoto').src = photo.dataUrl;
+    $('#fullPhoto').alt = caption;
+    $('#photoCaption').textContent = caption;
     $('#photoDialog').showModal();
   }
 
@@ -848,7 +839,6 @@
       exportFirst: () => exportControls([recordId], [recordId]), deleteLabel: 'Supprimer la photo' })) return;
     const target = photoTarget(record, rowId);
     target.photos = target.photos.filter(photo => photo.id !== id);
-    usageDirty = true;
     markChanged(record);
     renderPhotos(rowId);
     refreshDerived();
@@ -856,10 +846,15 @@
 
   function downloadJSON(records, pdfArchives, savedAnomalies) {
     const payload = { format: 'conciergerie-controles', version: 3, exportedAt: new Date().toISOString(), controls: records, archives: pdfArchives, anomalies: savedAnomalies };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), `controles-conciergerie-${today()}.json`);
+  }
+
+  // Téléchargement commun aux sauvegardes JSON et aux archives PDF.
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `controles-conciergerie-${today()}.json`;
+    anchor.download = filename;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -1022,7 +1017,6 @@
     records.forEach(record => registeredControls.set(record.id, structuredClone(record)));
     pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
     imported.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
-    usageDirty = true;
     if (records.length) {
       currentId = records[0].id;
       setType(records[0].type);
@@ -1071,10 +1065,6 @@
       <footer class="print-footer">${escapeHTML(config.footer)}</footer>`;
   }
 
-  async function printControl() {
-    await saveControl({ download: true });
-  }
-
   function setType(type) {
     activeType = type;
     const subject = current()?.type === type ? current() : type;
@@ -1083,61 +1073,48 @@
     itemIds = new Set(items.map(item => item.id));
   }
 
-  function renderHome() {
-    const countLabel = count => `${count} contrôle${count > 1 ? 's' : ''}`;
-    let conciergeCount = 0;
-    let officeCount = 0;
-    controls.forEach(record => { if (record.type === 'bureaux') officeCount += 1; else conciergeCount += 1; });
-    $('#homeConciergeCount').textContent = countLabel(conciergeCount);
-    $('#homeOfficeCount').textContent = countLabel(officeCount);
-    $('#homeArchiveCount').textContent = `${archives.size} PDF`;
-    renderStorageUsage();
+  // Une seule définition du contexte alimente le titre visible et celui de l'onglet.
+  function updatePageContext() {
+    if (view === 'control') route = { view, type: activeType, controlId: currentId };
+    const labels = { menu: 'Menu', controls: 'Mes contrôles', anomalies: 'Suivi des anomalies',
+      dashboard: 'Tableau de bord', control: newControlDates.has(currentId) ? 'Nouveau contrôle' : 'Contrôle' };
+    const title = view === 'home' ? 'Accueil' : view === 'folders' ? 'Accueil > Dossiers'
+      : `${typeLabels[activeType]} > ${labels[view]}`;
+    $('#pageTitle').textContent = title;
+    document.title = `${title} — E. Blanco SA`;
+    $('#sectionBackButton').hidden = view === 'home';
+    $('#homeButton').hidden = view === 'home';
+    $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control'].includes(view);
   }
 
-  // Taille décodée des photos et taille réelle des blobs PDF ; pas d'estimation du navigateur.
-  function renderStorageUsage() {
-    if (!usageDirty) return;
-    let photoBytes = 0;
-    const addPhotoBytes = photo => {
-      const data = photo.dataUrl || '';
-      const start = data.indexOf(',') + 1;
-      const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
-      if (start > 0) photoBytes += Math.max(0, Math.floor((data.length - start) * 3 / 4) - padding);
-    };
-    controls.forEach(record => {
-      const groups = [...Object.values(record.rows || {}), record.comments];
-      groups.forEach(group => (group?.photos || []).forEach(addPhotoBytes));
-    });
-    anomalies.forEach(anomaly => [...anomaly.photos, ...anomaly.correctionPhotos].forEach(addPhotoBytes));
-    const pdfBytes = [...archives.values()].reduce((total, archive) => total + archive.blob.size, 0);
-    const format = bytes => `${new Intl.NumberFormat('fr-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bytes / 1000000)} Mo`;
-    $('#storageUsagePhotos').textContent = format(photoBytes);
-    $('#storageUsagePDFs').textContent = format(pdfBytes);
-    $('#storageUsageTotal').textContent = format(photoBytes + pdfBytes);
-    $('#controlsStoragePhotos').textContent = format(photoBytes);
-    $('#controlsStoragePDFs').textContent = format(pdfBytes);
-    $('#controlsStorageTotal').textContent = format(photoBytes + pdfBytes);
-    usageDirty = false;
-  }
-
-  function showView(nextView) {
+  function showView(nextView, { remember = true } = {}) {
+    if (nextView === 'home') routeHistory.length = 0;
+    else if (remember && (route.view !== nextView || route.type !== activeType)) routeHistory.push(route);
     view = nextView;
+    route = { view, type: activeType, controlId: view === 'control' ? currentId : null };
     const views = { home: 'homeView', menu: 'sectionMenuView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView', dashboard: 'dashboardView' };
     Object.entries(views).forEach(([name, id]) => { $(`#${id}`).hidden = view !== name; });
     $('.skip-link').href = view === 'control' ? '#main' : `#${views[view]}`;
-    $('#sectionBackButton').hidden = !['controls', 'anomalies', 'control', 'dashboard'].includes(view);
-    $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control', 'dashboard'].includes(view);
-    $('#sectionMenuTitle').textContent = typeLabels[activeType];
-    $('#controlsTypeLabel').textContent = typeLabels[activeType];
-    $('#anomaliesTypeLabel').textContent = typeLabels[activeType];
+    updatePageContext();
     $('#headerControl').hidden = view !== 'control' || !current() || !items.length;
     $('#controlActions').hidden = view !== 'control' || !current() || !items.length;
     document.body.dataset.view = view;
-    renderHome();
     if (view === 'controls') renderList();
     if (view === 'anomalies') anomalyUI.render(activeType);
     if (view === 'dashboard') renderDashboard();
     window.scrollTo(0, 0);
+  }
+
+  async function goBack() {
+    await prepareManagement();
+    let target;
+    do { target = routeHistory.pop(); }
+    while (target?.view === 'control' && !controls.has(target.controlId));
+    if (!target) { showView('home'); return; }
+    if (target.view === 'control') currentId = target.controlId;
+    setType(target.type);
+    showView(target.view, { remember: false });
+    if (target.view === 'control') renderEditor();
   }
 
   async function openType(type) {
@@ -1160,9 +1137,8 @@
 
   function renderDashboard() {
     const result = window.CONTROL_INSIGHTS.stats({ controls: registeredControls, anomalies,
-      catalogs: { conciergerie: buildings, bureaux: offices }, templateFor,
+      catalogs: { conciergerie: buildings, bureaux: offices },
       sort: $('#dashboardSort').value, type: activeType });
-    $('#dashboardTypeLabel').textContent = typeLabels[activeType];
     $('#dashboardSummaryControls').textContent = result.summary.totalControls;
     $('#dashboardSummaryAnomalies').textContent = result.summary.openAnomalies;
     $('#dashboardSummaryDate').textContent = result.summary.lastDate ? displayDate(result.summary.lastDate) : 'Aucun contrôle';
@@ -1187,10 +1163,7 @@
     const anomaly = anomalies.get(id);
     const photo = (correction ? anomaly?.correctionPhotos : anomaly?.photos)?.find(photo => photo.id === photoId);
     if (!photo) return;
-    $('#photoCaption').textContent = `${correction ? 'Correction' : 'Anomalie'} : ${anomaly.label}`;
-    $('#fullPhoto').alt = $('#photoCaption').textContent;
-    $('#fullPhoto').src = photo.dataUrl;
-    $('#photoDialog').showModal();
+    openPhoto(photo, `${correction ? 'Correction' : 'Anomalie'} : ${anomaly.label}`);
   }
 
   async function reopenAnomaly(id) {
@@ -1237,8 +1210,6 @@
             correctionPhotos: [...anomalies.get(id).correctionPhotos, ...(photo ? [photo] : [])], updatedAt: new Date().toISOString() };
           await transaction('readwrite', store => store.put(updated), 'anomalies');
           anomalies.set(id, updated);
-          usageDirty = true;
-          renderHome();
           anomalyUI.render(activeType);
           dialog.close('saved');
           notify('Anomalie marquée comme réglée.');
@@ -1268,9 +1239,7 @@
 
   function renderPendingModel() {
     $('#sections').replaceChildren();
-    $('#workflowTitle').textContent = typeLabels[activeType];
-    $('#workflowEyebrow').textContent = 'Contrôles enregistrés';
-    $('#workflowDescription').textContent = 'Choisissez un bureau pour retrouver sa checklist.';
+    updatePageContext();
     $('#officePlaceholder').hidden = false;
     $('#controlForm').hidden = true;
     $('#headerControl').hidden = true;
@@ -1293,18 +1262,16 @@
 
   function renderFolders() {
     lists.renderArchives();
-    renderHome();
   }
 
   function downloadPDF(archive) {
-    const url = URL.createObjectURL(archive.blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = archive.filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    downloadBlob(archive.blob, archive.filename);
+  }
+
+  function buildArchive(record, blob, generatedAt = new Date().toISOString()) {
+    return { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
+      buildingName: record.buildingName, address: record.address, date: record.date,
+      filename: window.CONTROL_PDF.filename(record), generatedAt, blob };
   }
 
   async function downloadControlPDF(id) {
@@ -1320,13 +1287,9 @@
     setStorageStatus();
     try {
       const blob = await window.CONTROL_PDF.generate(structuredClone(record), reportConfig(record));
-      const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
-        buildingName: record.buildingName, address: record.address, date: record.date,
-        filename: window.CONTROL_PDF.filename(record), generatedAt: new Date().toISOString(), blob };
+      const archive = buildArchive(record, blob);
       await transaction('readwrite', store => store.put(archive), 'archives');
       archives.set(id, archive);
-      usageDirty = true;
-      renderHome();
       downloadPDF(archive);
       if (canWrite) {
         try { await writeDirectoryPDF(archive); }
@@ -1348,10 +1311,6 @@
     $('#archiveDialog').showModal();
   }
 
-  async function deleteArchive(id) {
-    await deleteArchives([id]);
-  }
-
   async function deleteArchives(ids) {
     await prepareManagement();
     const selected = [...new Set(ids)].filter(id => archives.has(id));
@@ -1364,7 +1323,6 @@
     await managedMutation(async () => {
       await transaction('readwrite', store => selected.forEach(id => store.delete(id)), 'archives');
       selected.forEach(id => archives.delete(id));
-      usageDirty = true;
     });
     if (selected.includes($('#archiveDialog').dataset.controlId) && $('#archiveDialog').open) $('#archiveDialog').close();
     refreshManagementViews();
@@ -1454,9 +1412,7 @@
       if (finish) record.completedAt = timestamp;
       const blob = await window.CONTROL_PDF.generate(record, reportConfig(record));
       const previous = archives.get(record.id);
-      const archive = { controlId: record.id, type: record.type, buildingId: record.buildingId ?? null,
-        buildingName: record.buildingName, address: record.address, date: record.date,
-        filename: window.CONTROL_PDF.filename(record), generatedAt: timestamp, blob };
+      const archive = buildArchive(record, blob, timestamp);
       // Le cliché du contrôle et son PDF sont enregistrés ensemble, ou pas du tout.
       const anomalyUpdates = deriveAnomalies([record]);
       await transaction('readwrite', stores => {
@@ -1467,11 +1423,9 @@
       controls.set(record.id, record);
       registeredControls.set(record.id, structuredClone(record));
       archives.set(record.id, archive);
-      usageDirty = true;
       versions.set(record.id, (versions.get(record.id) || 0) + 1);
       dirty.delete(record.id);
       saveError = false;
-      renderHome();
       renderList();
       if (download) downloadPDF(archive);
       let copied = false;
@@ -1503,7 +1457,7 @@
         lists.filterSite(activeType, card.dataset.dashboardSite, currentId);
       });
     });
-    $('#sectionBackButton').addEventListener('click', () => perform(() => openType(activeType)));
+    $('#sectionBackButton').addEventListener('click', () => perform(goBack));
     $('#menuNewControl').addEventListener('click', () => perform(newControl));
     $('#menuControls').addEventListener('click', () => perform(openControls));
     $('#menuAnomalies').addEventListener('click', () => perform(openAnomalies));
@@ -1532,7 +1486,7 @@
       const preview = event.target.closest('[data-preview-archive]');
       if (preview) { previewArchive(preview.dataset.previewArchive); return; }
       const remove = event.target.closest('[data-delete-archive]');
-      if (remove) perform(() => deleteArchive(remove.dataset.deleteArchive));
+      if (remove) perform(() => deleteArchives([remove.dataset.deleteArchive]));
     });
     $('#closeArchive').addEventListener('click', () => $('#archiveDialog').close());
     $('#archiveDialog').addEventListener('close', () => {
@@ -1545,10 +1499,8 @@
     $('#saveControl').addEventListener('click', () => perform(() => saveControl()));
     $('#finishControl').addEventListener('click', () => perform(() => saveControl({ finish: true })));
     $('#duplicateControl').addEventListener('click', () => perform(duplicateControl));
-    $('#deleteControl').addEventListener('click', () => perform(deleteControl));
-    $('#printControl').addEventListener('click', () => perform(printControl));
-    $('#exportControl').addEventListener('click', () => perform(exportControls));
-    $('#importControl').addEventListener('click', () => $('#importFile').click());
+    $('#deleteControl').addEventListener('click', () => { if (current()) perform(() => deleteControls([currentId])); });
+    $('#printControl').addEventListener('click', () => perform(() => saveControl({ download: true })));
     $('#importFile').addEventListener('change', event => {
       const file = event.target.files[0];
       event.target.value = '';
@@ -1563,18 +1515,16 @@
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
     $('#buildingSelect').addEventListener('change', () => perform(chooseBuilding));
-    ['controlDate'].forEach(id => {
-      $(`#${id}`).addEventListener('input', event => {
-        if (id === 'controlDate' && !validDate(event.target.value)) return;
-        current().date = event.target.value;
-        markChanged();
-        renderComparisons();
-        renderList();
-      });
-      if (id === 'controlDate') $(`#${id}`).addEventListener('blur', event => {
-        // Une date effacée temporairement ne corrompt jamais le contrôle sauvegardé.
-        if (!validDate(event.target.value)) event.target.value = current().date;
-      });
+    $('#controlDate').addEventListener('input', event => {
+      if (!validDate(event.target.value)) return;
+      current().date = event.target.value;
+      markChanged();
+      renderComparisons();
+      renderList();
+    });
+    $('#controlDate').addEventListener('blur', event => {
+      // Une date effacée temporairement ne corrompt jamais le contrôle sauvegardé.
+      if (!validDate(event.target.value)) event.target.value = current().date;
     });
     $('#sections').addEventListener('input', event => {
       const rowId = event.target.dataset.remark;

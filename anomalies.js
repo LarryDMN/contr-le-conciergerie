@@ -115,8 +115,7 @@
         ${thumbnails(anomaly)}${thumbnails(anomaly, true)}
         <div class="anomaly-actions">${anomaly.status === 'resolved'
           ? `<button type="button" class="button button-secondary" data-anomaly-reopen="${anomalyId}">Remettre en cours</button>`
-          : `<button type="button" class="button button-primary" data-anomaly-resolve="${anomalyId}">Marquer réglée</button>`}
-          ${deleted ? '' : `<button type="button" class="button button-secondary" data-anomaly-open="${anomalyId}">Ouvrir le contrôle</button>`}</div></article>`;
+          : `<button type="button" class="button button-primary" data-anomaly-resolve="${anomalyId}">Marquer réglée</button>`}</div></article>`;
     }
 
     function render(type = activeType) {
