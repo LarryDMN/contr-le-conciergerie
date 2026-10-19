@@ -6,18 +6,19 @@
     <meta name="theme-color" content="#0078D0">
     <meta name="description" content="Contrôles de conciergerie et d’entretien de bureaux : notes, photos et dossiers PDF, enregistrés sur votre appareil.">
     <title>Contrôles et dossiers — E. Blanco SA</title>
-    <link rel="stylesheet" href="style.css?v=8">
-    <script src="config.js?v=8" defer></script>
+    <link rel="stylesheet" href="style.css?v=9">
+    <script src="config.js?v=9" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="data/bureaux.js?v=8" defer></script>
-    <script src="office-model.js?v=8" defer></script>
-    <script src="insights.js?v=8" defer></script>
+    <script src="data/bureaux.js?v=9" defer></script>
+    <script src="office-model.js?v=9" defer></script>
+    <script src="insights.js?v=9" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js?v=8" defer></script>
-    <script src="lists.js?v=8" defer></script>
-    <script src="anomalies.js?v=8" defer></script>
-    <script src="app.js?v=8" defer></script>
+    <script src="pdf.js?v=9" defer></script>
+    <script src="lists.js?v=9" defer></script>
+    <script src="anomalies.js?v=9" defer></script>
+    <script src="transfer.js?v=9" defer></script>
+    <script src="app.js?v=9" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -53,7 +54,7 @@
       </div>
       <nav class="home-tools" aria-label="Dossiers et sauvegarde">
         <button id="openFolders" type="button" class="button button-secondary">Dossiers</button>
-        <button id="homeExport" type="button" class="button button-secondary">Exporter toutes les données</button>
+        <button id="homeExport" type="button" class="button button-secondary">Exporter</button>
         <button id="homeImport" type="button" class="button button-secondary">Importer une sauvegarde</button>
       </nav>
       <p class="local-note">Les données restent sur cet appareil. Exportez une sauvegarde pour les conserver ou les transférer.</p>
@@ -183,6 +184,43 @@
 
     <input id="importFile" type="file" accept="application/json,.json" hidden>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <dialog id="exportDialog" class="transfer-dialog" aria-labelledby="exportTitle">
+      <form id="exportForm">
+        <h2 id="exportTitle">Exporter les contrôles</h2>
+        <p id="exportScope" class="transfer-help">Choisissez la période et la section à exporter.</p>
+        <div class="transfer-dates">
+          <label class="form-field" for="exportFrom"><span>Du</span><input id="exportFrom" type="text" inputmode="numeric" maxlength="10" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" placeholder="jj/mm/aaaa" autocomplete="off" aria-describedby="exportDatesHelp"></label>
+          <label class="form-field" for="exportTo"><span>Au</span><input id="exportTo" type="text" inputmode="numeric" maxlength="10" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" placeholder="jj/mm/aaaa" autocomplete="off" aria-describedby="exportDatesHelp"></label>
+        </div>
+        <p id="exportDatesHelp" class="transfer-help">Format jour/mois/année. La date de fin est incluse. Laissez les dates vides pour tout exporter.</p>
+        <div class="transfer-presets" role="group" aria-label="Raccourcis de période">
+          <button type="button" class="button button-secondary" data-export-preset="all" aria-pressed="true">Tout</button>
+          <button type="button" class="button button-secondary" data-export-preset="month" aria-pressed="false">Ce mois-ci</button>
+          <button type="button" class="button button-secondary" data-export-preset="last3" aria-pressed="false">Les 3 derniers mois</button>
+          <button type="button" class="button button-secondary" data-export-preset="year" aria-pressed="false">Cette année</button>
+          <button type="button" class="button button-secondary" data-export-preset="previous-year" aria-pressed="false">Année précédente</button>
+        </div>
+        <label class="form-field" for="exportType"><span>Section</span><select id="exportType"><option value="both">Les deux</option><option value="conciergerie">Conciergerie</option><option value="bureaux">Bureaux</option></select></label>
+        <label class="transfer-checkbox" for="exportIncludePDFs"><input id="exportIncludePDFs" type="checkbox"><span>Inclure les PDF</span></label>
+        <p class="transfer-help">Les photos et le suivi des anomalies sont inclus. Les PDF sont facultatifs pour alléger le fichier.</p>
+        <p id="exportPreview" class="transfer-summary" role="status" aria-live="polite"></p>
+        <p id="exportError" class="transfer-error" role="alert" hidden></p>
+        <div class="confirmation-actions"><button id="exportCancel" type="button" class="button button-secondary">Annuler</button><button id="exportDownload" type="submit" class="button button-primary">Télécharger le JSON</button></div>
+      </form>
+    </dialog>
+    <dialog id="importDialog" class="transfer-dialog" aria-labelledby="importTitle">
+      <form id="importForm">
+        <h2 id="importTitle">Importer les contrôles</h2>
+        <p class="transfer-help">Vérifiez le résumé avant d’importer. Pour chaque identifiant déjà présent, choisissez de garder l’existant ou de le remplacer.</p>
+        <p class="transfer-help">Sans PDF dans le fichier, les archives déjà présentes sont conservées.</p>
+        <p id="importSummary" class="transfer-summary" role="status" aria-live="polite"></p>
+        <div id="importConflictTools" class="transfer-presets" role="group" aria-label="Appliquer un choix à tous les doublons" hidden><button id="importKeepAll" type="button" class="button button-secondary">Garder tous les existants</button><button id="importReplaceAll" type="button" class="button button-secondary">Tout remplacer</button></div>
+        <div id="importConflicts" class="import-conflicts" aria-label="Contrôles en doublon"></div>
+        <nav id="importConflictPagination" class="list-pagination" aria-label="Pages des contrôles en doublon" hidden><span id="importConflictPageInfo" class="page-info" role="status">Page 1 sur 1</span><div class="pagination-buttons"><button id="importConflictPrevious" type="button" class="button button-secondary">Précédent</button><button id="importConflictNext" type="button" class="button button-secondary">Suivant</button></div></nav>
+        <p id="importError" class="transfer-error" role="alert" hidden></p>
+        <div class="confirmation-actions"><button id="importCancel" type="button" class="button button-secondary">Annuler</button><button id="importConfirm" type="submit" class="button button-primary">Importer</button></div>
+      </form>
+    </dialog>
     <dialog id="photoDialog" class="photo-dialog" aria-labelledby="photoCaption">
       <div class="photo-dialog-header"><h2 id="photoCaption">Photo du contrôle</h2><button id="closePhoto" type="button" class="button button-secondary" aria-label="Fermer la photo">Fermer <span aria-hidden="true">×</span></button></div>
       <img id="fullPhoto" alt="Photo jointe au contrôle">
