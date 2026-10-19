@@ -326,6 +326,25 @@ dialog h2 { overflow-wrap: anywhere; }
 .archive-dialog iframe { display: block; width: 100%; min-height: 200px; height: min(65dvh, 760px); border: 1px solid var(--bordure); border-radius: var(--rayon); background: var(--fond); }
 .archive-preview-help { margin: var(--espace-3) 0; color: var(--gris); font-size: var(--texte-petit); }
 
+/* Les échanges de données restent lisibles au pouce, même avec de longs noms. */
+.transfer-dialog form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--espace-4); min-width: 0; }
+.transfer-dialog .confirmation-actions { margin-top: var(--espace-2); }
+.transfer-dialog .form-field { min-width: 0; }
+.transfer-help { color: var(--gris); font-size: var(--texte-petit); line-height: 1.6; overflow-wrap: anywhere; }
+.transfer-dates { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--espace-3); min-width: 0; }
+.transfer-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--espace-2); min-width: 0; }
+.transfer-presets > .button { min-width: 0; width: 100%; }
+.transfer-presets [aria-pressed="true"] { color: var(--blanc); background: var(--bleu); border-color: var(--bleu); }
+.transfer-checkbox { display: flex; align-items: center; gap: var(--espace-3); min-height: 44px; cursor: pointer; }
+.transfer-checkbox input { flex: 0 0 22px; width: 22px; min-height: 22px; height: 22px; margin: 0; padding: 0; accent-color: var(--bleu); }
+.transfer-summary { padding: var(--espace-3); color: var(--anthracite); background: var(--bleu-clair); border-radius: var(--rayon); white-space: pre-line; overflow-wrap: anywhere; }
+.transfer-summary:empty, .import-conflicts:empty { display: none; }
+.transfer-error { padding: var(--espace-3); color: var(--alerte); border: 1px solid var(--alerte); border-radius: var(--rayon); overflow-wrap: anywhere; }
+.import-conflicts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--espace-3); min-width: 0; }
+.import-conflict { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--espace-2); min-width: 0; padding: var(--espace-3); background: var(--fond); border: 1px solid var(--bordure); border-radius: var(--rayon); overflow-wrap: anywhere; }
+.import-conflict-title { font-weight: 600; }
+.import-conflict-meta { color: var(--gris); font-size: var(--texte-petit); }
+
 /* Enregistrer et PDF restent au pouce, quel que soit le défilement du contrôle. */
 .bottom-actions { position: fixed; z-index: 20; inset: auto 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--espace-2); padding: var(--espace-2) var(--espace-3) calc(var(--espace-2) + env(safe-area-inset-bottom)); border-top: 1px solid var(--bordure); background: var(--blanc); }
 .bottom-actions .button { min-height: 48px; min-width: 0; padding: 10px var(--espace-2); }
@@ -336,6 +355,7 @@ dialog h2 { overflow-wrap: anywhere; }
 #printReport { display: none; }
 
 @media (min-width: 700px) {
+  .transfer-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app-header { padding-right: var(--espace-6); padding-left: var(--espace-6); }
   .header-top { flex-direction: row; align-items: center; justify-content: space-between; }
   .header-navigation { justify-content: flex-end; width: auto; }

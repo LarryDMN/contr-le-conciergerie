@@ -40,6 +40,7 @@
   const newControlDates = new Map();
   const archives = new Map();
   const anomalies = new Map();
+  let importedCatalogs = { conciergeries: [], bureaux: [] };
   const anomalyDirty = new Set();
   const dirty = new Set();
   const versions = new Map();
@@ -153,6 +154,23 @@
     let request;
     await transaction('readonly', store => { request = store.getAll(); }, 'archives');
     request.result.forEach(archive => archives.set(archive.controlId, archive));
+  }
+
+  // Les sites reçus par JSON complètent les fichiers locaux, sans les remplacer.
+  function mergeCatalogs(catalogs) {
+    for (const [key, target] of [['conciergeries', buildings], ['bureaux', offices]]) {
+      const known = new Set(target.map(site => site.id));
+      catalogs[key].forEach(site => {
+        if (!known.has(site.id)) { target.push(structuredClone(site)); known.add(site.id); }
+      });
+    }
+  }
+
+  async function readCatalogs() {
+    let request;
+    await transaction('readonly', store => { request = store.get('importedCatalogs'); }, 'settings');
+    importedCatalogs = window.CONTROL_TRANSFER.validateCatalogs(request.result?.value);
+    mergeCatalogs(importedCatalogs);
   }
 
   function deriveAnomalies(records, existing = anomalies) {
@@ -681,7 +699,7 @@
     const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
     if (!await confirmManagement({ title: `Supprimer ${count} contrôle${count > 1 ? 's' : ''} ?`,
       description: `Cette action supprime définitivement ${count} contrôle${count > 1 ? 's' : ''}, leurs ${photoCount} photo${photoCount > 1 ? 's' : ''} et leurs ${pdfCount} PDF correspondants dans Dossiers. Le suivi des anomalies et ses photos restent conservés, ainsi que les copies déjà téléchargées ou copiées sur ordinateur.`,
-      exportFirst: () => exportControls(selected, selected) })) return;
+      exportFirst: () => exportBackup(selected, selected) })) return;
     await managedMutation(async () => {
       const owners = new Set(selected);
       const followUp = new Map(anomalies);
@@ -712,7 +730,7 @@
     const photoCount = selected.reduce((total, id) => total + countPhotos(controls.get(id)), 0);
     if (!await confirmManagement({ title: `Supprimer les photos de ${count} contrôle${count > 1 ? 's' : ''} ?`,
       description: `Retirer définitivement ${photoCount} photo${photoCount > 1 ? 's' : ''} de ${count} contrôle${count > 1 ? 's' : ''}${reason}. Les contrôles, notes, remarques et PDF restent intacts. Les photos du suivi des anomalies et des PDF archivés restent conservées.`,
-      exportFirst: () => exportControls(selected, selected), deleteLabel: 'Supprimer les photos' })) return;
+      exportFirst: () => exportBackup(selected, selected), deleteLabel: 'Supprimer les photos' })) return;
     const timestamp = new Date().toISOString();
     const selectedOwners = new Set(selected);
     const pendingAnomalies = [...anomalyDirty].map(id => anomalies.get(id))
@@ -836,17 +854,12 @@
     if (!record || !photoTarget(record, rowId).photos.some(photo => photo.id === id)) return;
     if (!await confirmManagement({ title: 'Supprimer cette photo ?',
       description: 'Cette action retire 1 photo de 1 contrôle. Les autres photos, notes, remarques et le PDF archivé sont conservés.',
-      exportFirst: () => exportControls([recordId], [recordId]), deleteLabel: 'Supprimer la photo' })) return;
+      exportFirst: () => exportBackup([recordId], [recordId]), deleteLabel: 'Supprimer la photo' })) return;
     const target = photoTarget(record, rowId);
     target.photos = target.photos.filter(photo => photo.id !== id);
     markChanged(record);
     renderPhotos(rowId);
     refreshDerived();
-  }
-
-  function downloadJSON(records, pdfArchives, savedAnomalies) {
-    const payload = { format: 'conciergerie-controles', version: 3, exportedAt: new Date().toISOString(), controls: records, archives: pdfArchives, anomalies: savedAnomalies };
-    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), `controles-conciergerie-${today()}.json`);
   }
 
   // Téléchargement commun aux sauvegardes JSON et aux archives PDF.
@@ -861,21 +874,129 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
-  async function exportControls(controlIds = null, archiveIds = null) {
-    await Promise.all([...photoJobs]);
-    // L'export reste utilisable en cas de quota dépassé afin de sauver les données en mémoire.
-    try { await flushChanges(); } catch { /* L'indicateur continue de signaler l'échec local. */ }
-    const selectedControls = controlIds === null ? sortedControls()
+  // Les bornes portent sur la visite, jamais sur createdAt ou updatedAt.
+  function collectExport(options, controlIds = null, archiveIds = null) {
+    const source = controlIds === null ? sortedControls()
       : [...new Set(controlIds)].map(id => controls.get(id)).filter(Boolean);
-    const selectedArchives = archiveIds === null ? [...archives.values()]
+    const records = window.CONTROL_TRANSFER.filter(source, options);
+    const owners = new Set(records.map(record => record.id));
+    const matches = record => window.CONTROL_TRANSFER.filter([record], options).length > 0;
+    const archiveSource = archiveIds === null ? [...archives.values()]
       : [...new Set(archiveIds)].map(id => archives.get(id)).filter(Boolean);
+    const selectedArchives = options.includePDFs ? archiveSource.filter(archive => owners.has(archive.controlId) ||
+      (!controls.has(archive.controlId) && (controlIds === null || archiveIds !== null) && matches(archive))) : [];
+    const extraOwners = new Set(selectedArchives.map(archive => archive.controlId));
+    // Le suivi orphelin demeure sauvegardable, même après suppression du contrôle.
+    const savedAnomalies = [...anomalies.values()].filter(anomaly => owners.has(anomaly.controlId) ||
+      (!controls.has(anomaly.controlId) && (controlIds === null || extraOwners.has(anomaly.controlId)) && matches(anomaly)));
+    return { records, selectedArchives, savedAnomalies };
+  }
+
+  async function writeExport(options, controlIds = null, archiveIds = null) {
+    await prepareManagement();
+    const { records, selectedArchives, savedAnomalies } = collectExport(options, controlIds, archiveIds);
     const pdfArchives = await Promise.all(selectedArchives.map(async ({ blob, ...metadata }) => ({
       ...metadata, pdfDataUrl: await blobToDataURL(blob)
     })));
-    const owners = controlIds === null ? null : new Set([...controlIds, ...(archiveIds || [])]);
-    const savedAnomalies = [...anomalies.values()].filter(anomaly => !owners || owners.has(anomaly.controlId));
-    downloadJSON(selectedControls.map(record => structuredClone(record)), pdfArchives, structuredClone(savedAnomalies));
-    notify(`${selectedControls.length} contrôle(s), ${selectedArchives.length} PDF et ${savedAnomalies.length} anomalie(s) exportés, photos incluses.`);
+    const timestamp = new Date().toISOString();
+    const exportInfo = { createdAt: timestamp, period: { from: options.from, to: options.to },
+      section: options.type, controlCount: records.length, anomalyCount: savedAnomalies.length,
+      archiveCount: pdfArchives.length, includesPDFs: options.includePDFs,
+      scope: controlIds === null ? 'all' : 'selection' };
+    const payload = { format: 'conciergerie-controles', version: 4, exportedAt: timestamp, exportInfo,
+      controls: records, archives: pdfArchives, anomalies: savedAnomalies,
+      catalogs: window.CONTROL_TRANSFER.catalogs(records, [...savedAnomalies, ...selectedArchives],
+        { conciergerie: buildings, bureaux: offices }) };
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), window.CONTROL_TRANSFER.filename(options));
+    notify(`${records.length} contrôle(s), ${pdfArchives.length} PDF et ${savedAnomalies.length} anomalie(s) exportés, photos incluses.`);
+  }
+
+  // La sauvegarde précédant une suppression reste complète pour les éléments concernés.
+  function exportBackup(controlIds, archiveIds) {
+    return writeExport({ from: null, to: null, type: 'both', includePDFs: true }, controlIds, archiveIds);
+  }
+
+  async function exportControls(controlIds = null) {
+    await prepareManagement();
+    const dialog = $('#exportDialog');
+    const form = $('#exportForm');
+    form.reset();
+    form.noValidate = true;
+    $('#exportError').hidden = true;
+    $('#exportScope').textContent = controlIds === null ? 'Tous les contrôles des deux activités sont disponibles.'
+      : `${controlIds.length} contrôle(s) sélectionné(s). La période et la section restreignent cette sélection.`;
+    let busy = false;
+    const options = () => {
+      const from = window.CONTROL_TRANSFER.parseDate($('#exportFrom').value);
+      const to = window.CONTROL_TRANSFER.parseDate($('#exportTo').value);
+      if (from && to && from > to) throw new Error('La date de début doit précéder ou égaler la date de fin.');
+      return { from, to, type: $('#exportType').value, includePDFs: $('#exportIncludePDFs').checked };
+    };
+    const update = () => {
+      try {
+        const data = collectExport(options(), controlIds);
+        $('#exportPreview').textContent = `${data.records.length} contrôle(s), ${data.savedAnomalies.length} anomalie(s), ${data.selectedArchives.length} PDF. Photos incluses.`;
+      } catch { $('#exportPreview').textContent = 'Saisissez des dates valides au format jj/mm/aaaa.'; }
+    };
+    const preset = event => {
+      const button = event.target.closest('[data-export-preset]');
+      if (!button) return;
+      const period = window.CONTROL_TRANSFER.period(button.dataset.exportPreset, today());
+      $('#exportFrom').value = window.CONTROL_TRANSFER.formatDate(period.from);
+      $('#exportTo').value = window.CONTROL_TRANSFER.formatDate(period.to);
+      dialog.querySelectorAll('[data-export-preset]').forEach(item => item.setAttribute('aria-pressed', item === button));
+      $('#exportError').hidden = true;
+      update();
+    };
+    const changed = event => {
+      if (['exportFrom', 'exportTo'].includes(event.target.id)) {
+        const field = event.target;
+        if (/^\d{8}$/.test(field.value)) field.value = field.value.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
+        dialog.querySelectorAll('[data-export-preset]').forEach(item => item.setAttribute('aria-pressed', 'false'));
+      }
+      $('#exportError').hidden = true;
+      update();
+    };
+    dialog.querySelectorAll('[data-export-preset]').forEach(item => item.setAttribute('aria-pressed', item.dataset.exportPreset === 'all'));
+    update();
+    return new Promise(resolve => {
+      const cancel = () => { if (!busy) dialog.close('cancel'); };
+      const escaped = event => { event.preventDefault(); cancel(); };
+      const submit = async event => {
+        event.preventDefault();
+        if (busy) return;
+        try {
+          const settings = options();
+          busy = true;
+          form.querySelectorAll('button,input,select').forEach(field => { field.disabled = true; });
+          await writeExport(settings, controlIds);
+          dialog.close('exported');
+        } catch (error) {
+          $('#exportError').textContent = error.message || 'L’export a échoué. Réessayez.';
+          $('#exportError').hidden = false;
+        } finally {
+          busy = false;
+          form.querySelectorAll('button,input,select').forEach(field => { field.disabled = false; });
+        }
+      };
+      const closed = () => {
+        form.removeEventListener('submit', submit);
+        form.removeEventListener('input', changed);
+        dialog.removeEventListener('click', preset);
+        dialog.removeEventListener('cancel', escaped);
+        dialog.removeEventListener('close', closed);
+        $('#exportCancel').removeEventListener('click', cancel);
+        resolve(dialog.returnValue === 'exported');
+      };
+      form.addEventListener('submit', submit);
+      form.addEventListener('input', changed);
+      dialog.addEventListener('click', preset);
+      dialog.addEventListener('cancel', escaped);
+      dialog.addEventListener('close', closed);
+      $('#exportCancel').addEventListener('click', cancel);
+      dialog.showModal();
+      $('#exportFrom').focus();
+    });
   }
 
   function blobToDataURL(blob) {
@@ -893,12 +1014,40 @@
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
   }
 
+  // Le séparateur historique « -- » ne doit jamais rattacher une preuve à une autre ligne.
+  function checkAnomalyIdentities(records, snapshots, invalid) {
+    const identities = new Map();
+    const bind = (controlId, rowId) => {
+      const id = window.ANOMALIES.id(controlId, rowId);
+      const previous = identities.get(id);
+      if (previous && (previous.controlId !== controlId || previous.rowId !== rowId)) invalid();
+      identities.set(id, { controlId, rowId });
+    };
+    snapshots.forEach(anomaly => bind(anomaly.controlId, anomaly.rowId));
+    records.forEach(record => Object.keys(record.rows).forEach(rowId => bind(record.id, rowId)));
+  }
+
   // Import strict et atomique : un fichier invalide ne modifie aucun contrôle existant.
   function validateImport(payload) {
     const invalid = () => { throw new Error('Fichier de sauvegarde invalide. Aucun contrôle n’a été importé.'); };
-    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2, 3].includes(payload.version) ||
+    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2, 3, 4].includes(payload.version) ||
       !Array.isArray(payload.controls) || (payload.version >= 2 && !Array.isArray(payload.archives)) ||
-      (payload.version === 3 && !Array.isArray(payload.anomalies))) invalid();
+      (payload.version >= 3 && !Array.isArray(payload.anomalies))) invalid();
+    const catalogs = window.CONTROL_TRANSFER.validateCatalogs(payload.catalogs);
+    if (payload.version === 4) {
+      const info = payload.exportInfo;
+      const period = info?.period;
+      if (!info || typeof info.createdAt !== 'string' || Number.isNaN(Date.parse(info.createdAt)) ||
+        !period || typeof period !== 'object' || Array.isArray(period) ||
+        !Object.hasOwn(period, 'from') || !Object.hasOwn(period, 'to') ||
+        (period.from != null && !validDate(period.from)) ||
+        (period.to != null && !validDate(period.to))) invalid();
+      if ((period.from && period.to && period.from > period.to) ||
+        !['both', 'conciergerie', 'bureaux'].includes(info.section) ||
+        info.controlCount !== payload.controls.length || info.anomalyCount !== payload.anomalies.length ||
+        info.archiveCount !== payload.archives.length || typeof info.includesPDFs !== 'boolean' ||
+        (!info.includesPDFs && payload.archives.length)) invalid();
+    }
     const string = value => { if (typeof value !== 'string') invalid(); return value; };
     const photoIds = new Map();
     const photos = values => {
@@ -911,7 +1060,8 @@
         const sourceId = typeof photo.id === 'string' ? photo.id : '';
         if (!photoIds.has(sourceId)) photoIds.set(sourceId, new Map());
         const byImage = photoIds.get(sourceId);
-        if (!byImage.has(photo.dataUrl)) byImage.set(photo.dataUrl, uid());
+        if (!byImage.has(photo.dataUrl)) byImage.set(photo.dataUrl,
+          !byImage.size && /^[a-zA-Z0-9-]{1,100}$/.test(sourceId) ? sourceId : uid());
         return { id: byImage.get(photo.dataUrl), name: string(photo.name), dataUrl: photo.dataUrl,
           width: photo.width, height: photo.height, createdAt: string(photo.createdAt) };
       });
@@ -958,7 +1108,12 @@
         ...(lineLabels ? { lineLabels } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
-    const owners = new Map(records.map(record => [record.id, record]));
+    const ownerTypes = new Map();
+    const registerOwnerType = (id, type) => {
+      if (ownerTypes.has(id) && ownerTypes.get(id) !== type) invalid();
+      ownerTypes.set(id, type);
+    };
+    records.forEach(record => registerOwnerType(record.id, record.type));
     const archiveIds = new Set();
     const pdfArchives = (payload.version >= 2 ? payload.archives : []).map(archive => {
       if (!archive || typeof archive.controlId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(archive.controlId) ||
@@ -967,8 +1122,7 @@
         typeof archive.generatedAt !== 'string' || Number.isNaN(Date.parse(archive.generatedAt)) ||
         (archive.buildingId != null && typeof archive.buildingId !== 'string') ||
         typeof archive.pdfDataUrl !== 'string' || !/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/.test(archive.pdfDataUrl)) invalid();
-      const owner = owners.get(archive.controlId);
-      if (owner && owner.type !== archive.type) invalid();
+      registerOwnerType(archive.controlId, archive.type);
       archiveIds.add(archive.controlId);
       let binary;
       try { binary = atob(archive.pdfDataUrl.split(',')[1]); } catch { invalid(); }
@@ -979,58 +1133,162 @@
         buildingId: archive.buildingId ?? null, buildingName: string(archive.buildingName), address: string(archive.address),
         filename: archive.filename, generatedAt: archive.generatedAt, blob: new Blob([bytes], { type: 'application/pdf' }) };
     });
-    const savedAnomalies = payload.version === 3
+    const savedAnomalies = payload.version >= 3
       ? window.ANOMALIES.validate(payload.anomalies, { validDate, photos }) : [];
-    savedAnomalies.forEach(anomaly => {
-      if (owners.has(anomaly.controlId) && owners.get(anomaly.controlId).type !== anomaly.type) invalid();
+    savedAnomalies.forEach(anomaly => registerOwnerType(anomaly.controlId, anomaly.type));
+    checkAnomalyIdentities(records, savedAnomalies, invalid);
+    return { records, pdfArchives, savedAnomalies, catalogs };
+  }
+
+  function confirmImport(data) {
+    const dialog = $('#importDialog');
+    const form = $('#importForm');
+    const conflicts = data.records.filter(record => controls.has(record.id));
+    const choices = new Map(conflicts.map(record => [record.id, 'keep']));
+    let page = 0;
+    const render = () => {
+      const replaced = [...choices.values()].filter(choice => choice === 'replace').length;
+      $('#importSummary').textContent = `${data.records.length - conflicts.length} contrôle(s) à ajouter, ${conflicts.length - replaced} ignoré(s), ${conflicts.length} en doublon, dont ${replaced} à remplacer. Le fichier contient ${data.savedAnomalies.length} anomalie(s) et ${data.pdfArchives.length} PDF.`;
+      $('#importConflictTools').hidden = !conflicts.length;
+      $('#importConflicts').innerHTML = conflicts.slice(page * 50, (page + 1) * 50).map(record => `
+        <div class="import-conflict"><p class="import-conflict-title">${escapeHTML(buildingName(record))}</p>
+          <p class="import-conflict-meta">${escapeHTML(typeLabels[record.type])} · ${escapeHTML(displayDate(record.date))}</p>
+          <label class="form-field"><span>Contrôle ${escapeHTML(record.id)}</span>
+            <select data-import-conflict="${escapeHTML(record.id)}"><option value="keep" ${choices.get(record.id) === 'keep' ? 'selected' : ''}>Garder l’existant</option><option value="replace" ${choices.get(record.id) === 'replace' ? 'selected' : ''}>Remplacer</option></select></label></div>`).join('');
+      const pages = Math.max(1, Math.ceil(conflicts.length / 50));
+      $('#importConflictPagination').hidden = pages === 1;
+      $('#importConflictPageInfo').textContent = `Page ${page + 1} sur ${pages}`;
+      $('#importConflictPrevious').disabled = page === 0;
+      $('#importConflictNext').disabled = page + 1 >= pages;
+    };
+    $('#importError').hidden = true;
+    render();
+    return new Promise(resolve => {
+      const click = event => {
+        if (event.target.closest('#importKeepAll')) choices.forEach((_, id) => choices.set(id, 'keep'));
+        else if (event.target.closest('#importReplaceAll')) choices.forEach((_, id) => choices.set(id, 'replace'));
+        else if (event.target.closest('#importConflictPrevious')) page -= 1;
+        else if (event.target.closest('#importConflictNext')) page += 1;
+        else return;
+        render();
+      };
+      const changed = event => {
+        const id = event.target.dataset.importConflict;
+        if (choices.has(id)) { choices.set(id, event.target.value); render(); }
+      };
+      const submit = event => { event.preventDefault(); dialog.close('import'); };
+      const cancel = () => dialog.close('cancel');
+      const escaped = event => { event.preventDefault(); cancel(); };
+      const closed = () => {
+        form.removeEventListener('submit', submit);
+        dialog.removeEventListener('click', click);
+        dialog.removeEventListener('change', changed);
+        dialog.removeEventListener('cancel', escaped);
+        dialog.removeEventListener('close', closed);
+        $('#importCancel').removeEventListener('click', cancel);
+        resolve(dialog.returnValue === 'import' ? choices : null);
+      };
+      form.addEventListener('submit', submit);
+      dialog.addEventListener('click', click);
+      dialog.addEventListener('change', changed);
+      dialog.addEventListener('cancel', escaped);
+      dialog.addEventListener('close', closed);
+      $('#importCancel').addEventListener('click', cancel);
+      $('#importTitle').tabIndex = -1;
+      dialog.showModal();
+      $('#importTitle').focus({ preventScroll: true });
+      dialog.scrollTop = 0;
     });
-    return { records, pdfArchives, savedAnomalies };
   }
 
   async function importControls(file) {
     let payload;
     try { payload = JSON.parse(await file.text()); }
     catch { throw new Error('Ce fichier ne contient pas une sauvegarde JSON valide.'); }
-    const { records, pdfArchives, savedAnomalies } = validateImport(payload);
+    const data = validateImport(payload);
     await flushChanges();
-    let copied = 0;
-    const remapped = new Map();
-    const existingOwners = new Set([...controls.keys(), ...archives.keys(), ...[...anomalies.values()].map(anomaly => anomaly.controlId)]);
-    const incomingOwners = new Set([...records.map(record => record.id), ...pdfArchives.map(archive => archive.controlId), ...savedAnomalies.map(anomaly => anomaly.controlId)]);
-    incomingOwners.forEach(id => remapped.set(id, existingOwners.has(id) ? uid() : id));
-    records.forEach(record => { const id = remapped.get(record.id); if (id !== record.id) copied += 1; record.id = id; });
-    pdfArchives.forEach(archive => { archive.controlId = remapped.get(archive.controlId); });
-    const importedControls = new Set(records.map(record => record.id));
-    savedAnomalies.forEach(anomaly => {
-      anomaly.controlId = remapped.get(anomaly.controlId);
-      anomaly.id = window.ANOMALIES.id(anomaly.controlId, anomaly.rowId);
-      anomaly.controlDeleted = !importedControls.has(anomaly.controlId) && !controls.has(anomaly.controlId);
+    const choices = await confirmImport(data);
+    if (!choices) return;
+    const replaced = new Set([...choices].filter(([, choice]) => choice === 'replace').map(([id]) => id));
+    const records = data.records.filter(record => !choices.has(record.id) || replaced.has(record.id));
+    const accepted = new Set(records.map(record => record.id));
+    const incoming = new Set(data.records.map(record => record.id));
+    // Un identifiant est commun aux trois stores : changer son type mêlerait deux suivis.
+    const existingTypes = new Map();
+    [...controls.values(), ...archives.values(), ...anomalies.values()].forEach(value => {
+      const id = value.controlId || value.id;
+      if (!existingTypes.has(id)) existingTypes.set(id, new Set());
+      existingTypes.get(id).add(value.type);
     });
-    const imported = new Map(savedAnomalies.map(anomaly => [anomaly.id, anomaly]));
-    deriveAnomalies(records, new Map([...anomalies, ...imported])).forEach(anomaly => imported.set(anomaly.id, anomaly));
-    await transaction('readwrite', stores => {
-      records.forEach(record => stores.controls.put(record));
-      pdfArchives.forEach(archive => stores.archives.put(archive));
-      imported.forEach(anomaly => stores.anomalies.put(anomaly));
-    }, ['controls', 'archives', 'anomalies']);
-    records.forEach(record => controls.set(record.id, record));
-    records.forEach(record => registeredControls.set(record.id, structuredClone(record)));
-    pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
-    imported.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
+    [...data.records, ...data.pdfArchives, ...data.savedAnomalies].forEach(value => {
+      const id = value.controlId || value.id;
+      if (choices.get(id) === 'keep') return;
+      if ([...(existingTypes.get(id) || [])].some(type => type !== value.type)) {
+        throw new Error('Un identifiant existe déjà dans une autre section. Import annulé : gardez l’existant pour cet identifiant.');
+      }
+    });
+    // Garder un contrôle garde aussi son suivi et son archive ; aucun ID n'est recopié.
+    const pdfArchives = data.pdfArchives.filter(archive => accepted.has(archive.controlId) ||
+      (!incoming.has(archive.controlId) && !controls.has(archive.controlId) && !archives.has(archive.controlId)));
+    const imported = new Map();
+    data.savedAnomalies.forEach(anomaly => {
+      const owner = anomaly.controlId;
+      const existing = anomalies.get(anomaly.id);
+      if ((accepted.has(owner) || (!incoming.has(owner) && !controls.has(owner))) && (!existing || replaced.has(owner))) {
+        imported.set(anomaly.id, { ...anomaly, controlDeleted: !accepted.has(owner) && !controls.has(owner) });
+      }
+    });
+    checkAnomalyIdentities([...controls.values()].filter(record => !accepted.has(record.id)).concat(records),
+      [...anomalies.values(), ...imported.values()], () => {
+        throw new Error('Deux lignes partagent un identifiant de suivi ambigu. Aucune donnée n’a été importée.');
+      });
+    // Les anomalies plus anciennes absentes du fichier ne sont jamais effacées.
+    const merged = new Map([...anomalies, ...imported]);
+    deriveAnomalies(records, merged).forEach(anomaly => imported.set(anomaly.id, anomaly));
+    anomalies.forEach(anomaly => {
+      if (accepted.has(anomaly.controlId) && anomaly.controlDeleted && !imported.has(anomaly.id)) {
+        imported.set(anomaly.id, { ...anomaly, controlDeleted: false });
+      }
+    });
+    const catalogs = structuredClone(importedCatalogs);
+    for (const [key, target] of [['conciergeries', buildings], ['bureaux', offices]]) {
+      const known = new Set(target.map(site => site.id));
+      data.catalogs[key].forEach(site => { if (!known.has(site.id)) { catalogs[key].push(site); known.add(site.id); } });
+    }
+    const added = records.length - replaced.size;
+    await managedMutation(async () => {
+      await transaction('readwrite', stores => {
+        records.forEach(record => stores.controls.put(record));
+        pdfArchives.forEach(archive => stores.archives.put(archive));
+        imported.forEach(anomaly => stores.anomalies.put(anomaly));
+        stores.settings.put({ name: 'importedCatalogs', value: catalogs });
+      }, ['controls', 'archives', 'anomalies', 'settings']);
+      records.forEach(record => {
+        controls.set(record.id, record);
+        registeredControls.set(record.id, structuredClone(record));
+        versions.set(record.id, (versions.get(record.id) || 0) + 1);
+        dirty.delete(record.id);
+        newControlDates.delete(record.id);
+      });
+      pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
+      imported.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
+      importedCatalogs = catalogs;
+      mergeCatalogs(catalogs);
+    });
+    lists.prune();
     if (records.length) {
       currentId = records[0].id;
       setType(records[0].type);
       showView('control');
       renderEditor();
-    } else if (savedAnomalies.length && !pdfArchives.length) {
-      setType(savedAnomalies[0].type);
+    } else if (imported.size && !pdfArchives.length) {
+      setType([...imported.values()][0].type);
       showView('anomalies');
-    } else {
+    } else if (pdfArchives.length) {
       showView('folders');
       renderFolders();
     }
-    notify(`${records.length} contrôle(s) et ${pdfArchives.length} PDF importés.` +
-      (copied ? ' Les contrôles déjà présents ont été conservés ; les doublons sont des copies.' : ''));
+    notify(`${added} contrôle(s) ajouté(s), ${data.records.length - records.length} ignoré(s), ${replaced.size} remplacé(s) ; ${pdfArchives.length} PDF importé(s).`);
   }
 
   function printPhotos(photos) {
@@ -1319,7 +1577,7 @@
     const ownerCount = selected.filter(id => controls.has(id)).length;
     if (!await confirmManagement({ title: `Supprimer ${count} PDF de Dossiers ?`,
       description: `Cette action supprime définitivement ${count} PDF dans Dossiers. Les ${ownerCount} contrôle${ownerCount > 1 ? 's' : ''} correspondant${ownerCount > 1 ? 's' : ''}, leurs photos et les copies déjà téléchargées ou copiées sur ordinateur restent conservés.`,
-      exportFirst: () => exportControls(selected.filter(id => controls.has(id)), selected) })) return;
+      exportFirst: () => exportBackup(selected.filter(id => controls.has(id)), selected) })) return;
     await managedMutation(async () => {
       await transaction('readwrite', store => selected.forEach(id => store.delete(id)), 'archives');
       selected.forEach(id => archives.delete(id));
@@ -1469,7 +1727,7 @@
     anomalyUI.bind();
     $('#exportSelectedControls').addEventListener('click', () => perform(() => {
       const ids = lists.selectedControls(activeType);
-      return exportControls(ids, ids);
+      return exportControls(ids);
     }));
     $('#deleteSelectedControls').addEventListener('click', () => perform(() => deleteControls(lists.selectedControls(activeType))));
     $('#removeSelectedPhotos').addEventListener('click', () => perform(() => removeControlsPhotos(lists.selectedControls(activeType))));
@@ -1628,6 +1886,7 @@
         database.close();
         notify('Le stockage a été mis à jour dans un autre onglet. Rechargez cette page.', true, true);
       };
+      await readCatalogs();
       await readControls();
       await readArchives();
       await readAnomalies();
