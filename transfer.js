@@ -127,8 +127,11 @@
         const id = text(site.id, 'Identifiant', true);
         if (identifiers.has(id)) throw new Error('Identifiant répété dans le catalogue.');
         identifiers.add(id);
+        // Les anciennes sauvegardes de bureaux peuvent encore porter ce champ.
+        // Il est accepté mais n'entre plus dans les informations fixes du site.
+        if (site.concierge !== undefined) text(site.concierge, 'Concierge');
         return { id, nom: text(site.nom, 'Nom', true), adresse: text(site.adresse, 'Adresse'),
-          concierge: text(site.concierge, 'Concierge'), ...(key === 'bureaux' ? { checklist: checklist(site.checklist) } : {}) };
+          ...(key === 'bureaux' ? { checklist: checklist(site.checklist) } : { concierge: site.concierge ?? '' }) };
       });
     }
     return result;
@@ -202,8 +205,9 @@
             usedIdentifiers.add(id);
           }
           sites.set(key, knownHistoricSite || { id, nom: historicName,
-            adresse: address, concierge: typeof record.concierge === 'string' ? record.concierge : '',
-            ...(type === 'bureaux' ? { checklist: historicChecklist(record.officeSections) } : {}) });
+            adresse: address,
+            ...(type === 'bureaux' ? { checklist: historicChecklist(record.officeSections) }
+              : { concierge: '' }) });
         }
       }
       result[outputKey] = [...sites.values()];

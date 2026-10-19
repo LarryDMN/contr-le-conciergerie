@@ -98,7 +98,7 @@
     const ensure = (recordType, key, name) => {
       const id = cardId(recordType, key);
       if (!cards.has(id)) cards.set(id, { key, name, type: recordType, latestDate: null,
-        average: null, ratedCount: 0, openAnomalies: 0, hasControl: false });
+        average: null, ratedCount: 0, openAnomalies: 0, hasControl: false, latestPersonName: 'Non renseigné' });
       return cards.get(id);
     };
     TYPES.forEach(recordType => values(catalogs[recordType]).forEach(site => {
@@ -118,6 +118,7 @@
       latest.set(id, record);
       card.hasControl = true;
       card.latestDate = isDate(record.date) ? record.date : null;
+      card.latestPersonName = window.CONTROL_PEOPLE.display(record);
       // Toutes les notes conservées comptent, même si une ancienne ligne a
       // depuis disparu du catalogue et que son libellé n'est plus disponible.
       const ratings = Object.values(record.rows || {}).map(row => row?.rating).filter(validRating);

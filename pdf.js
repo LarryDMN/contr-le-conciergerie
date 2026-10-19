@@ -183,17 +183,21 @@
 
     function metadata(label, value) {
       doc.setFont('helvetica', 'normal').setFontSize(10);
-      const lines = doc.splitTextToSize(text(value || '—'), width - 32);
-      const height = Math.max(5, lines.length * 4.5);
+      // Le libellé « Nettoyeur/Nettoyeuse » doit rester distinct du nom libre,
+      // y compris quand celui-ci s'étend sur plusieurs lignes.
+      const labelWidth = 49;
+      const labels = doc.splitTextToSize(text(label), labelWidth - 3);
+      const lines = doc.splitTextToSize(text(value || '—'), width - labelWidth);
+      const height = Math.max(5, labels.length * 4.5, lines.length * 4.5);
       if (y + height > limit) nextPage();
-      doc.setFont('helvetica', 'bold').setTextColor(...colors.anthracite).text(label, PAGE.margin, y);
-      doc.setFont('helvetica', 'normal').text(lines, PAGE.margin + 32, y);
+      doc.setFont('helvetica', 'bold').setTextColor(...colors.anthracite).text(labels, PAGE.margin, y);
+      doc.setFont('helvetica', 'normal').text(lines, PAGE.margin + labelWidth, y);
       y += height + 2;
     }
 
     if (record.buildingName) metadata(type === 'bureaux' ? 'Bureau' : 'Immeuble', record.buildingName);
     metadata('Adresse', record.address);
-    metadata('Concierge', record.concierge);
+    metadata(`${window.CONTROL_PEOPLE.label(record)} :`, window.CONTROL_PEOPLE.display(record));
     const parts = String(record.date || '').split('-');
     metadata('Date', parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : record.date);
     y += 2;

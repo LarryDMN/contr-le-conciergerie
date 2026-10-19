@@ -1,13 +1,13 @@
 /* Catalogue des bureaux : copier un bloc pour ajouter un bureau.
  * Les zones et lignes sont reprises telles quelles dans le contrôle et le PDF.
  * Laisser checklist: [] lorsqu’un modèle n’est pas encore disponible.
+ * Le nom du nettoyeur ou de la nettoyeuse est saisi dans chaque contrôle.
  */
 const bureaux = [
   {
     id: "bona-creations-rolle-a-one",
     nom: "Bona Créations SA – Rolle (A-One)",
     adresse: "",
-    concierge: "",
     checklist: [
       {
         titre: "A. Salles – Cuisine (garde-manger) – Terrasse",

@@ -94,7 +94,8 @@ test('clichés historiques dédupliqués sans modifier les contrôles, IDs stabl
   const second = plain(transfer.catalogs([...records].reverse()));
   assert.deepEqual(first, second);
   assert.equal(first.conciergeries.length, 2);
-  assert.equal(first.conciergeries.find(entry => entry.adresse === 'Rue 1').concierge, 'Alice');
+  assert.equal(first.conciergeries.find(entry => entry.adresse === 'Rue 1').concierge, '');
+  assert.equal(records[0].concierge, 'Alice');
   assert.match(first.conciergeries[0].id, /^historique-conciergerie-[a-f0-9]+$/);
   assert.equal(JSON.stringify(records), before);
 });
@@ -137,7 +138,8 @@ test('un brouillon sans site reste exportable sans inventer de catalogue', () =>
 test('bureaux : checklist du catalogue ou des zones historiques sans téléphone', () => {
   const office = { ...site('office'), checklist: [{ titre: 'Zone A', lignes: [{ libelle: 'Sol', frequence: '5x/sem' }] }] };
   const record = visit('current', '2026-10-19', 'bureaux', { buildingId: 'office' });
-  assert.deepEqual(plain(transfer.catalogs([record], [], { bureaux: [office] }).bureaux), [office]);
+  const { concierge, ...fixedOffice } = office;
+  assert.deepEqual(plain(transfer.catalogs([record], [], { bureaux: [office] }).bureaux), [fixedOffice]);
   const legacy = visit('removed', '2026-10-19', 'bureaux', { buildingId: 'removed', buildingName: 'Bureau retiré', address: '',
     officeSections: [{ id: 'zone', title: 'Zone historique', groups: [{ id: 'group', title: '',
       items: [{ id: 'line', label: 'Sol historique', frequency: '1x/sem' }] }] }] });
@@ -145,6 +147,18 @@ test('bureaux : checklist du catalogue ou des zones historiques sans téléphone
     [{ titre: 'Zone historique', lignes: [{ libelle: 'Sol historique', frequence: '1x/sem' }] }]);
   assert.equal(Object.hasOwn(transfer.catalogs([legacy]).bureaux[0], 'telephone'), false);
   assert.deepEqual(plain(transfer.catalogs([visit('pending', '2026-10-19', 'bureaux', { buildingId: 'pending' })]).bureaux[0].checklist), []);
+});
+
+test('les noms de bureaux restent dans les contrôles, jamais dans le catalogue portable', () => {
+  const oldOffice = { ...site('office'), concierge: 'Ancien nom', checklist: [] };
+  const current = visit('visit', '2026-10-19', 'bureaux', { buildingId: 'office', cleanerName: 'Nouveau nom' });
+  const exported = transfer.catalogs([current], [], { bureaux: [oldOffice] });
+  assert.equal(Object.hasOwn(exported.bureaux[0], 'concierge'), false);
+  assert.equal(Object.hasOwn(exported.bureaux[0], 'cleanerName'), false);
+  assert.equal(current.cleanerName, 'Nouveau nom');
+  const legacy = visit('old', '2026-01-01', 'bureaux', { buildingName: 'Bureau retiré', concierge: 'Historique' });
+  assert.equal(Object.hasOwn(transfer.catalogs([legacy]).bureaux[0], 'concierge'), false);
+  assert.equal(legacy.concierge, 'Historique');
 });
 
 test('validation atomique des catalogues partiels et anciens exports sans catalogue', () => {

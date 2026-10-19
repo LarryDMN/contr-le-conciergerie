@@ -17,6 +17,14 @@
     return ['id', 'name', 'dataUrl', 'width', 'height', 'createdAt'].every(key => photo[key] === other[key]);
   });
 
+  // Le suivi garde le nom saisi lors de la visite, même après la suppression
+  // du contrôle. Les anciens clichés peuvent n'avoir encore aucun nom.
+  const personFields = value => Object.fromEntries(['concierge', 'cleanerName']
+    .filter(key => typeof value?.[key] === 'string').map(key => [key, value[key]]));
+  const personSnapshot = record => ({
+    [record.type === 'bureaux' ? 'cleanerName' : 'concierge']: window.CONTROL_PEOPLE.name(record)
+  });
+
   // Ne renvoyer que les créations et les modifications permet de conserver les
   // dates et d'éviter une réécriture de toutes les photos à chaque sauvegarde.
   function derive(record, template, existingMap = new Map()) {
@@ -26,16 +34,19 @@
         label: item.label, zone: group.title || section.title
       }))));
     const timestamp = new Date().toISOString();
-    return Object.entries(record.rows || {}).flatMap(([rowId, row]) => {
+    const visited = new Set();
+    const changes = Object.entries(record.rows || {}).flatMap(([rowId, row]) => {
       if (![3, 4].includes(row.rating)) return [];
       const anomalyId = id(record.id, rowId);
+      visited.add(anomalyId);
       const previous = existingMap.get(anomalyId);
       const source = labels.get(rowId) || { label: rowId, zone: 'Modèle antérieur' };
       const values = {
         id: anomalyId, controlId: record.id, rowId, type: record.type || 'conciergerie',
         buildingId: record.buildingId ?? null, buildingName: record.buildingName || record.address || 'Sans immeuble',
         address: record.address || '', date: record.date, zone: source.zone, label: source.label,
-        rating: row.rating, remark: row.remark || '', controlDeleted: false
+        rating: row.rating, remark: row.remark || '', controlDeleted: false,
+        ...personFields(previous), ...personSnapshot(record)
       };
       // Les photos du suivi sont indépendantes de celles du contrôle : un
       // nettoyage du contrôle ne doit pas effacer la preuve de l'anomalie.
@@ -47,6 +58,15 @@
         resolvedDate: previous?.resolvedDate || null, correctionPhotos: clonePhotos(previous?.correctionPhotos),
         createdAt: previous?.createdAt || timestamp, updatedAt: timestamp }];
     });
+    // Une anomalie conservée reste liée à sa visite d'origine lorsque la ligne
+    // est désormais mieux notée ou absente du modèle. Ne changer que son nom.
+    const snapshot = personSnapshot(record);
+    existingMap.forEach(previous => {
+      if (previous.controlId !== record.id || visited.has(previous.id) ||
+        Object.entries(snapshot).every(([key, value]) => previous[key] === value)) return;
+      changes.push({ ...previous, ...snapshot, updatedAt: timestamp });
+    });
+    return changes;
   }
 
   // L'import n'accepte aucun champ supplémentaire ni identifiant interprétable
@@ -69,6 +89,7 @@
         !['open', 'resolved'].includes(value.status) || !validDate(value.date) ||
         (value.buildingId != null && (typeof value.buildingId !== 'string' || !value.buildingId)) ||
         typeof value.controlDeleted !== 'boolean' ||
+        ['concierge', 'cleanerName'].some(key => key in value && typeof value[key] !== 'string') ||
         (value.resolvedDate != null && !validDate(value.resolvedDate)) ||
         (value.status === 'resolved' && !value.resolvedDate)) invalid();
       ids.add(value.id);
@@ -77,7 +98,8 @@
         date: value.date, zone: text(value.zone), label: text(value.label), rating: value.rating,
         remark: text(value.remark), photos: photos(value.photos), status: value.status,
         resolvedDate: value.resolvedDate ?? null, correctionPhotos: photos(value.correctionPhotos),
-        createdAt: timestamp(value.createdAt), updatedAt: timestamp(value.updatedAt), controlDeleted: value.controlDeleted };
+        createdAt: timestamp(value.createdAt), updatedAt: timestamp(value.updatedAt), controlDeleted: value.controlDeleted,
+        ...personFields(value) };
     });
   }
 
@@ -107,6 +129,7 @@
         <p class="anomaly-building">${escapeHTML(nameOf(anomaly))}</p>
         <h3>${deleted ? escapeHTML(anomaly.label) : `<button type="button" class="anomaly-open" data-anomaly-open="${anomalyId}">${escapeHTML(anomaly.label)}</button>`}</h3>
         <p class="anomaly-meta">Zone : ${escapeHTML(anomaly.zone)}</p>
+        <p class="anomaly-meta">${escapeHTML(window.CONTROL_PEOPLE.label(anomaly))} : ${escapeHTML(window.CONTROL_PEOPLE.display(anomaly))}</p>
         <p><span class="anomaly-rating ${anomaly.rating === 4 ? 'anomaly-rating-bad' : ''}">Note ${anomaly.rating} · ${anomaly.rating === 4 ? 'Mauvais' : 'Moyen'}</span></p>
         <p class="anomaly-remark">${escapeHTML(anomaly.remark || 'Aucune remarque.')}</p>
         <p class="anomaly-meta">Contrôle du ${escapeHTML(displayDate(anomaly.date))}${deleted ? ' · <strong>contrôle supprimé</strong>' : ''}</p>
@@ -146,7 +169,7 @@
         state.status === 'open' ? 'anomaliesOpenTab' : 'anomaliesResolvedTab');
       const query = searchable(state.query.trim());
       const filtered = all.filter(anomaly => anomaly.status === state.status && (!state.building || buildingKey(anomaly) === state.building) &&
-        searchable([nameOf(anomaly), anomaly.address, anomaly.label, anomaly.zone, anomaly.remark, anomaly.date,
+        searchable([nameOf(anomaly), anomaly.address, window.CONTROL_PEOPLE.display(anomaly), anomaly.label, anomaly.zone, anomaly.remark, anomaly.date,
           displayDate(anomaly.date), anomaly.resolvedDate || ''].join(' ')).includes(query)).sort((a, b) =>
         (b.resolvedDate || b.date).localeCompare(a.resolvedDate || a.date) || b.updatedAt.localeCompare(a.updatedAt));
       const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
