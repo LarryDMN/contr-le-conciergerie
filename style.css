@@ -105,7 +105,7 @@ progress::-moz-progress-bar { background: var(--bleu); border-radius: var(--rayo
 .home-tools > .button { flex: 1 1 230px; }
 .section-menu-view { max-width: 760px; }
 
-/* Les informations du site sont reprises du catalogue, sans champ de téléphone. */
+/* Le site vient du catalogue ; le nom de la personne est propre au contrôle. */
 .control-header, .summary-panel, .office-placeholder { padding: var(--espace-4); }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--espace-3); }
 .header-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--espace-4); margin-top: var(--espace-4); }

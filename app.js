@@ -174,7 +174,13 @@
   }
 
   function deriveAnomalies(records, existing = anomalies) {
-    return records.flatMap(record => window.ANOMALIES.derive(record, templateFor(record), existing));
+    // Un seul index évite de reparcourir tout le suivi pour chaque contrôle.
+    const byControl = new Map();
+    existing.forEach(anomaly => {
+      if (!byControl.has(anomaly.controlId)) byControl.set(anomaly.controlId, new Map());
+      byControl.get(anomaly.controlId).set(anomaly.id, anomaly);
+    });
+    return records.flatMap(record => window.ANOMALIES.derive(record, templateFor(record), byControl.get(record.id) || new Map()));
   }
 
   async function readAnomalies() {
@@ -226,7 +232,7 @@
     return normalizeRecord({ id: uid(), type: activeType, createdAt: timestamp, updatedAt: timestamp,
       buildingId: null,
       ...(activeType === 'bureaux' ? { officeSections: [] } : {}),
-      buildingName: '', address: '', concierge: '', date: today(), rows: {},
+      buildingName: '', address: '', ...(activeType === 'bureaux' ? { cleanerName: '' } : { concierge: '' }), date: today(), rows: {},
       comments: { text: '', photos: [] } });
   }
 
@@ -443,11 +449,17 @@
     $('#addressLabel').textContent = activeType === 'bureaux' ? 'Adresse du bureau' : 'Adresse de l’immeuble';
     $('#address').placeholder = activeType === 'bureaux' ? 'Non renseignée' : 'Adresse de l’immeuble';
     $('#address').readOnly = true;
-    $('#concierge').readOnly = true;
-    $('#responsibleLabel').textContent = 'Concierge';
+    $('#concierge').readOnly = false;
+    $('#concierge').required = activeType === 'bureaux';
+    $('#concierge').placeholder = activeType === 'bureaux' ? 'Nom' : 'Nom du concierge';
+    $('#responsibleLabel').textContent = window.CONTROL_PEOPLE.label(record);
+    $('#responsibleHelp').textContent = activeType === 'bureaux'
+      ? 'Nom obligatoire, modifiable pour cette visite et enregistré avec ce contrôle.'
+      : 'Nom proposé d’après la dernière visite, modifiable pour ce contrôle.';
     renderBuildingSelection();
     $('#address').value = record.address;
-    $('#concierge').value = record.concierge;
+    $('#concierge').value = window.CONTROL_PEOPLE.name(record);
+    updatePersonValidity();
     $('#controlDate').value = record.date;
     renderPhotosRemovedNotice(record);
     if (pendingOffice) {
@@ -475,10 +487,10 @@
     select.value = record.buildingId || '';
     select.required = !legacy;
     $('#buildingHelp').textContent = legacy
-      ? 'Contrôle antérieur : l’adresse et le concierge enregistrés sont conservés.'
+      ? 'Contrôle antérieur : l’adresse et le nom enregistrés sont conservés.'
       : missing ? 'Ce site a été retiré de la liste. Les informations et le modèle de ce contrôle sont conservés.'
         : needsBuilding(record) ? `Choisissez ${office ? 'le bureau' : 'l’immeuble'} pour commencer le contrôle.`
-          : 'Adresse et concierge repris de la liste lors du choix du site.';
+          : 'Adresse reprise de la liste ; le nom est enregistré uniquement avec cette visite.';
     const disabled = needsBuilding(record) || !items.length;
     $('#inspectionFields').disabled = disabled;
     $('#saveControl').disabled = disabled;
@@ -492,6 +504,27 @@
     field.reportValidity();
     field.focus();
     notify(`Choisissez ${activeType === 'bureaux' ? 'le bureau' : 'l’immeuble'} avant de remplir ou d’imprimer ce contrôle.`, true);
+    return false;
+  }
+
+  function updatePersonValidity() {
+    const field = $('#concierge');
+    field.setCustomValidity(current()?.type === 'bureaux' && !window.CONTROL_PEOPLE.name(current())
+      ? 'Renseignez le nom du nettoyeur ou de la nettoyeuse.' : '');
+  }
+
+  function requirePerson(record) {
+    if (record.type !== 'bureaux' || window.CONTROL_PEOPLE.name(record)) return true;
+    notify('Renseignez le champ « Nettoyeur/Nettoyeuse » avant d’enregistrer ou de générer le PDF.', true);
+    if (record.id === currentId && view === 'control') {
+      // perform() réactive le formulaire après cette action ; attendre avant le focus.
+      requestAnimationFrame(() => {
+        if (record.id !== currentId || view !== 'control') return;
+        updatePersonValidity();
+        $('#concierge').focus();
+        $('#concierge').reportValidity();
+      });
+    }
     return false;
   }
 
@@ -509,20 +542,23 @@
       catch (error) { renderBuildingSelection(); throw error; }
     }
     let record = current();
+    const typedBeforeSite = needsBuilding(record) ? window.CONTROL_PEOPLE.name(record) : '';
+    const sameLegacySite = !office && record.buildingId === undefined && record.address === building.adresse;
     if (office && record.buildingId === building.id && record.officeSections?.length) {
       renderBuildingSelection();
       return;
     }
+    if (!office && record.buildingId === building.id) { renderBuildingSelection(); return; }
     if (office && (archives.has(record.id) || record.comments.text || countPhotos(record) ||
-        Object.values(record.rows).some(row => row.rating || row.remark))) {
+        (record.buildingId && window.CONTROL_PEOPLE.name(record)) || Object.values(record.rows).some(row => row.rating || row.remark))) {
       if (!window.confirm('Choisir ce bureau crée un nouveau contrôle. Le contrôle actuel, ses notes, remarques, photos et PDF seront conservés. Continuer ?')) {
         renderBuildingSelection(); return;
       }
       await newControl();
       record = current();
     }
-    if (!office && record.address && (record.address !== building.adresse || record.concierge !== building.concierge) &&
-      !window.confirm('Changer l’immeuble de ce contrôle ? Son adresse et son concierge seront remplacés par ceux de la liste. Les notes, remarques et photos seront conservées.')) {
+    if (!office && ((record.buildingId && record.buildingId !== building.id) || (record.address && record.address !== building.adresse)) &&
+      !window.confirm('Changer l’immeuble de ce contrôle ? Son adresse sera remplie depuis la liste et un nom sera proposé d’après les visites de cet immeuble. Les notes, remarques et photos seront conservées.')) {
       renderBuildingSelection();
       return;
     }
@@ -530,7 +566,10 @@
     record.buildingId = building.id;
     record.buildingName = building.nom;
     record.address = building.adresse;
-    record.concierge = building.concierge;
+    const proposedName = typedBeforeSite || window.CONTROL_PEOPLE.previousName(record, registeredControls) ||
+      (office ? '' : building.concierge || '');
+    if (office) record.cleanerName = proposedName;
+    else if (!sameLegacySite) record.concierge = proposedName;
     if (office) record.officeSections = officeSections;
     normalizeRecord(record);
     markChanged(record);
@@ -1072,6 +1111,8 @@
         ids.has(record.id) || !validDate(record.date) || !record.rows || typeof record.rows !== 'object' ||
         Array.isArray(record.rows) || !record.comments) invalid();
       if (!['conciergerie', 'bureaux'].includes(record.type ?? 'conciergerie')) invalid();
+      if (record.concierge !== undefined && typeof record.concierge !== 'string') invalid();
+      if (Object.hasOwn(record, 'cleanerName') && typeof record.cleanerName !== 'string') invalid();
       if (record.completedAt != null && (typeof record.completedAt !== 'string' || Number.isNaN(Date.parse(record.completedAt)))) invalid();
       if (record.photosRemovedAt != null && (typeof record.photosRemovedAt !== 'string' || Number.isNaN(Date.parse(record.photosRemovedAt)))) invalid();
       let officeSections;
@@ -1101,7 +1142,9 @@
       return normalizeRecord({ id: record.id, type: record.type ?? 'conciergerie', date: record.date, address: string(record.address),
         ...(Object.hasOwn(record, 'buildingId') ? { buildingId: record.buildingId } : {}),
         buildingName: record.buildingName ?? '',
-        concierge: string(record.concierge), createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
+        ...(Object.hasOwn(record, 'concierge') ? { concierge: record.concierge } : {}),
+        ...(Object.hasOwn(record, 'cleanerName') ? { cleanerName: record.cleanerName } : {}),
+        createdAt: string(record.createdAt), updatedAt: string(record.updatedAt),
         ...(record.completedAt ? { completedAt: record.completedAt } : {}),
         ...(record.photosRemovedAt ? { photosRemovedAt: record.photosRemovedAt } : {}),
         ...(officeSections ? { officeSections } : {}),
@@ -1304,7 +1347,7 @@
       <h1>${record.type === 'bureaux' ? 'Modèle de contrôle de l’entretien de bureaux' : 'Modèle de contrôle des conciergeries'}</h1>
       <dl class="print-metadata">${record.buildingName ? `<div><dt>${record.type === 'bureaux' ? 'Bureau' : 'Immeuble'}</dt><dd>${escapeHTML(record.buildingName)}</dd></div>` : ''}
         <div><dt>${record.type === 'bureaux' ? 'Adresse du bureau' : 'Adresse de l’immeuble'}</dt><dd>${escapeHTML(record.address)}</dd></div>
-        <div><dt>Concierge</dt><dd>${escapeHTML(record.concierge || '—')}</dd></div>
+        <div><dt>${escapeHTML(window.CONTROL_PEOPLE.label(record))} :</dt><dd>${escapeHTML(window.CONTROL_PEOPLE.display(record))}</dd></div>
         <div><dt>Date</dt><dd>${escapeHTML(displayDate(record.date))}</dd></div></dl>
       <p class="print-legend">1 = Très bon · 2 = Bon · 3 = Moyen · 4 = Mauvais</p>
       <p>Joindre une photo pour la note 4, ainsi que pour tous les dégâts et actes de vandalisme.</p></header>
@@ -1408,6 +1451,7 @@
         <span><small>Anomalies ouvertes</small><strong>${card.openAnomalies}</strong></span></span>
         <span class="dashboard-card-date">Dernier contrôle : ${escapeHTML(displayDate(card.latestDate))}</span>`
         : `<span class="dashboard-no-control">Aucun contrôle</span><span class="dashboard-card-date">${card.openAnomalies} anomalie${card.openAnomalies > 1 ? 's' : ''} ouverte${card.openAnomalies > 1 ? 's' : ''}</span>`}
+      ${card.hasControl ? `<span class="dashboard-card-date">${escapeHTML(window.CONTROL_PEOPLE.label(activeType))} : ${escapeHTML(card.latestPersonName)}</span>` : ''}
       </button>`).join('');
   }
 
@@ -1541,6 +1585,11 @@
     if (needsBuilding(record) || !itemsFor(record).length) {
       notify('Choisissez le site et son modèle avant de générer ce PDF.', true); return;
     }
+    if (!requirePerson(record)) {
+      await switchControl(id);
+      requirePerson(record);
+      return;
+    }
     pdfBusy = true;
     setStorageStatus();
     try {
@@ -1655,7 +1704,7 @@
   }
 
   async function saveControl({ finish = false, download = false } = {}) {
-    if (!current() || !items.length || !requireBuilding()) return;
+    if (!current() || !items.length || !requireBuilding() || !requirePerson(current())) return;
     // Redemander l'autorisation avant la génération longue, pendant le geste utilisateur.
     const canWrite = await directoryPermission(true);
     const editor = $('#controlForm');
@@ -1773,6 +1822,14 @@
       if (button) perform(() => switchControl(button.dataset.openControl));
     });
     $('#buildingSelect').addEventListener('change', () => perform(chooseBuilding));
+    $('#concierge').addEventListener('input', event => {
+      const record = current();
+      if (!record) return;
+      record[record.type === 'bureaux' ? 'cleanerName' : 'concierge'] = event.target.value;
+      updatePersonValidity();
+      markChanged(record);
+      renderList();
+    });
     $('#controlDate').addEventListener('input', event => {
       if (!validDate(event.target.value)) return;
       current().date = event.target.value;

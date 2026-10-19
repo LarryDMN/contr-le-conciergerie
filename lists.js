@@ -12,7 +12,7 @@
     versionOf = record => record.updatedAt }) {
     const $ = id => document.getElementById(id);
     const states = new Map(Object.keys(typeLabels).map(type => [type, {
-      building: '', year: '', month: '', query: '', page: 0, selected: new Set()
+      building: '', person: '', year: '', month: '', query: '', page: 0, selected: new Set()
     }]));
     const archiveState = { page: 0, selected: new Set(), query: '' };
     const controlProjections = new Map();
@@ -32,14 +32,15 @@
     // Les photos et leurs grandes chaînes base64 ne sont jamais parcourues ici.
     function controlProjection(record) {
       const key = JSON.stringify([versionOf(record), record.updatedAt, record.date, record.buildingId, record.buildingName,
-        record.address, record.concierge, record.photosRemovedAt]);
+        record.address, window.CONTROL_PEOPLE.name(record), record.photosRemovedAt]);
       const cached = controlProjections.get(record.id);
       if (cached?.key === key && cached.record === record) return cached;
       const name = buildingName(record);
       const date = displayDate(record.date);
-      const projection = { key, record, id: record.id, name, date, building: buildingKey(record),
+      const person = window.CONTROL_PEOPLE.display(record);
+      const projection = { key, record, id: record.id, name, date, person, building: buildingKey(record),
         year: record.date.slice(0, 4), month: record.date.slice(5, 7), rated: ratedCount(record), total: itemCount(record),
-        search: searchable([name, record.address, record.concierge, record.date, date,
+        search: searchable([name, record.address, person, record.date, date,
           ...Object.values(record.rows || {}).map(row => row.remark), record.comments?.text].join(' ')) };
       controlProjections.set(record.id, projection);
       return projection;
@@ -119,10 +120,15 @@
         type === 'bureaux' ? 'Tous les bureaux' : 'Tous les immeubles', state, 'building');
       fillSelect('controlYearFilter', [...new Set(records.map(record => record.year))].sort().reverse().map(year => [year, year]), 'Toutes les années', state, 'year');
       fillSelect('controlMonthFilter', monthNames.map((name, index) => [String(index + 1).padStart(2, '0'), name]), 'Tous les mois', state, 'month');
+      $('controlPersonFilterLabel').textContent = window.CONTROL_PEOPLE.label(type);
+      fillSelect('controlPersonFilter', [...new Set(records.map(record => record.person))]
+        .sort((left, right) => left.localeCompare(right, 'fr')).map(person => [person, person]),
+        'Tous les noms', state, 'person');
       if ($('controlSearch').value !== state.query) $('controlSearch').value = state.query;
       const query = searchable(state.query.trim());
       const filtered = records.filter(record => (!state.building || record.building === state.building) &&
-        (!state.year || record.year === state.year) && (!state.month || record.month === state.month) && record.search.includes(query));
+        (!state.person || record.person === state.person) && (!state.year || record.year === state.year) &&
+        (!state.month || record.month === state.month) && record.search.includes(query));
       updatePagination('control', state, filtered.length);
       const page = filtered.slice(state.page * PAGE_SIZE, (state.page + 1) * PAGE_SIZE);
       visibleControls = page.map(record => record.id);
@@ -130,16 +136,16 @@
 
       // Une remarque ne change pas le résumé affiché : conserver le DOM évite de
       // perdre le focus des cases et de recréer la liste à chaque frappe.
-      const signature = JSON.stringify([type, currentId, filtered.length, page.map(({ record, id, name, date, rated, total }) =>
-        [id, name, date, record.concierge, rated, total, record.photosRemovedAt])]);
+      const signature = JSON.stringify([type, currentId, filtered.length, page.map(({ record, id, name, date, person, rated, total }) =>
+        [id, name, date, person, rated, total, record.photosRemovedAt])]);
       if (signature !== controlSignature) {
-        $('controlList').innerHTML = page.map(({ record, id, name, date, rated, total }) => `
+        $('controlList').innerHTML = page.map(({ record, id, name, date, person, rated, total }) => `
           <div class="saved-control ${id === currentId ? 'active' : ''}">
             <label class="selection-check"><input type="checkbox" data-select-control="${escapeHTML(id)}" value="${escapeHTML(id)}">
               <span class="visually-hidden">Sélectionner ${escapeHTML(name)}, contrôle du ${escapeHTML(date)}</span></label>
             <button type="button" class="open-control" data-open-control="${escapeHTML(id)}" ${id === currentId ? 'aria-current="true"' : ''}>
               <span class="control-date">${escapeHTML(date)}</span><span class="control-address">${escapeHTML(name)}</span>
-              <span class="control-meta">${escapeHTML(record.concierge || 'Concierge non renseigné')}
+              <span class="control-meta">${escapeHTML(person)}
                 <span>${rated} / ${total}</span></span>
               ${record.photosRemovedAt ? '<span class="photos-removed-list">Photos retirées</span>' : ''}
             </button>
@@ -220,7 +226,7 @@
     function bind() {
       if (bound) return;
       bound = true;
-      [['controlBuildingFilter', 'building'], ['controlYearFilter', 'year'], ['controlMonthFilter', 'month'], ['controlSearch', 'query']].forEach(([id, field]) => {
+      [['controlBuildingFilter', 'building'], ['controlPersonFilter', 'person'], ['controlYearFilter', 'year'], ['controlMonthFilter', 'month'], ['controlSearch', 'query']].forEach(([id, field]) => {
         $(id).addEventListener(id === 'controlSearch' ? 'input' : 'change', event => {
           const state = states.get(activeType);
           state[field] = event.target.value;
@@ -254,6 +260,7 @@
     function filterSite(type, key, selectedId) {
       const state = states.get(type);
       state.building = key;
+      state.person = '';
       state.year = '';
       state.month = '';
       state.query = '';
