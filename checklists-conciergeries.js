@@ -64,7 +64,7 @@ const checklistsConciergeries = {
       },
     ]
   },
-  "edmond-vaucher-13b-c": {
+  "edmond-vaucher-13b-13c": {
     nom: "Edmond-Vaucher 13B-C",
     checklist: [
       {
@@ -573,7 +573,7 @@ const checklistsConciergeries = {
       },
     ]
   },
-  "route-des-jeunes-105b": {
+  "jeunes-105": {
     nom: "Route des Jeunes 105B",
     checklist: [
       {

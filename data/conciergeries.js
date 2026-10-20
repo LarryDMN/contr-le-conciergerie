@@ -125,8 +125,8 @@ window.CONCIERGERIES = [
   },
   {
     id: "jeunes-105",
-    nom: "Route des Jeunes 105",
-    adresse: "Route des Jeunes 105",
+    nom: "Route des Jeunes 105B",
+    adresse: "Route des Jeunes 105B",
     concierge: "Joao"
   }
 ];

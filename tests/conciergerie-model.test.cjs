@@ -19,9 +19,10 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const items = sections => sections.flatMap(section => section.groups.flatMap(group => group.items));
 const small = lignes => ({ checklist: [{ titre: 'Entrée', lignes }] });
 
-test('Lyon et Terroux gardent exactement leurs zones et leurs lignes distinctes', () => {
+test('Lyon, Terroux, Edmond-Vaucher et Jeunes 105B gardent leurs zones et lignes distinctes', () => {
   const before = JSON.stringify(definitions);
-  for (const [id, zoneCount, lineCount] of [['lyon-12', 5, 24], ['terroux-4b', 6, 35]]) {
+  for (const [id, zoneCount, lineCount] of [['lyon-12', 5, 24], ['terroux-4b', 6, 35],
+    ['edmond-vaucher-13b-13c', 6, 36], ['jeunes-105', 5, 28]]) {
     const sections = model.sections(definitions[id]);
     assert.equal(sections.length, zoneCount);
     assert.equal(items(sections).length, lineCount);
@@ -36,11 +37,15 @@ test('absence de checklist sans modèle par défaut et clés inconnues signalée
   assert.deepEqual(plain(model.sections(undefined)), []);
   assert.deepEqual(plain(model.sections({})), []);
   assert.deepEqual(plain(model.sections({ checklist: [] })), []);
-  assert.equal(definitions['edmond-vaucher-13b-13c'], undefined);
-  assert.equal(definitions['jeunes-105'], undefined);
-  assert.deepEqual(plain(model.unknownKeys(definitions, context.window.CONCIERGERIES)),
-    ['edmond-vaucher-13b-c', 'route-des-jeunes-105b']);
-  assert.equal(model.sections(definitions['edmond-vaucher-13b-c']).flatMap(section => items([section])).length, 36);
+  assert.equal(definitions['edmond-vaucher-13b-c'], undefined);
+  assert.equal(definitions['route-des-jeunes-105b'], undefined);
+  assert.deepEqual(plain(model.unknownKeys(definitions, context.window.CONCIERGERIES)), []);
+  const unknown = { ...definitions, 'site-inconnu': small(['Sol']) };
+  assert.deepEqual(plain(model.unknownKeys(unknown, context.window.CONCIERGERIES)), ['site-inconnu']);
+  assert.equal(Object.hasOwn(unknown, 'site-inconnu'), true);
+  const site = context.window.CONCIERGERIES.find(site => site.id === 'jeunes-105');
+  assert.equal(site.nom, 'Route des Jeunes 105B');
+  assert.equal(site.adresse, 'Route des Jeunes 105B');
 });
 
 test('déplacer ou ajouter une ligne garde les autres identifiants ; un renommage change son identité', () => {

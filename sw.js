@@ -3,10 +3,10 @@
  * Incrémenter la version du cache lors d'une publication de nouveaux fichiers.
  */
 const CACHE_PREFIX = "controles-conciergerie-";
-const CACHE_NAME = `${CACHE_PREFIX}v13`;
+const CACHE_NAME = `${CACHE_PREFIX}v14`;
 const INDEX_URL = new URL("index.html", self.registration.scope).href;
-const ASSET_URLS = ["index.html", "style.css?v=13", "app.js?v=13", "config.js?v=13", "data/conciergeries.js", "checklists-conciergeries.js?v=13", "data/bureaux.js?v=13", "office-model.js?v=13", "conciergerie-model.js?v=13", "people.js?v=13", "insights.js?v=13", "transfer.js?v=13",
-  "logo-horizontal.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "manifest.json", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js?v=13", "lists.js?v=13", "anomalies.js?v=13"]
+const ASSET_URLS = ["index.html", "style.css?v=14", "app.js?v=14", "config.js?v=14", "data/conciergeries.js", "checklists-conciergeries.js?v=14", "data/bureaux.js?v=14", "office-model.js?v=14", "conciergerie-model.js?v=14", "people.js?v=14", "insights.js?v=14", "transfer.js?v=14",
+  "logo-horizontal.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "manifest.json", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js?v=14", "lists.js?v=14", "anomalies.js?v=14"]
   .map((path) => new URL(path, self.registration.scope).href);
 
 self.addEventListener("install", (event) => {
