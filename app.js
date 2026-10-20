@@ -1374,7 +1374,7 @@
     itemIds = new Set(items.map(item => item.id));
   }
 
-  // Une seule définition du contexte alimente le titre visible et celui de l'onglet.
+  // Le titre visible situe la page ; l'onglet conserve le nom fixe de l'application.
   function updatePageContext() {
     if (view === 'control') route = { view, type: activeType, controlId: currentId };
     const labels = { menu: 'Menu', controls: 'Mes contrôles', anomalies: 'Suivi des anomalies',
@@ -1382,7 +1382,6 @@
     const title = view === 'home' ? 'Accueil' : view === 'folders' ? 'Accueil > Dossiers'
       : `${typeLabels[activeType]} > ${labels[view]}`;
     $('#pageTitle').textContent = title;
-    document.title = `${title} — E. Blanco SA`;
     $('#sectionBackButton').hidden = view === 'home';
     $('#homeButton').hidden = view === 'home';
     $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control'].includes(view);
