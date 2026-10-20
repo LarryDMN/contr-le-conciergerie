@@ -3,10 +3,10 @@
  * Incrémenter la version du cache lors d'une publication de nouveaux fichiers.
  */
 const CACHE_PREFIX = "controles-conciergerie-";
-const CACHE_NAME = `${CACHE_PREFIX}v10`;
+const CACHE_NAME = `${CACHE_PREFIX}v11`;
 const INDEX_URL = new URL("index.html", self.registration.scope).href;
-const ASSET_URLS = ["index.html", "style.css?v=10", "app.js?v=10", "config.js?v=10", "data/conciergeries.js", "data/bureaux.js?v=10", "office-model.js?v=10", "people.js?v=10", "insights.js?v=10", "transfer.js?v=10",
-  "logo-horizontal.png", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js?v=10", "lists.js?v=10", "anomalies.js?v=10"]
+const ASSET_URLS = ["index.html", "style.css?v=11", "app.js?v=11", "config.js?v=11", "data/conciergeries.js", "data/bureaux.js?v=11", "office-model.js?v=11", "people.js?v=11", "insights.js?v=11", "transfer.js?v=11",
+  "logo-horizontal.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "manifest.json", "vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js", "pdf.js?v=11", "lists.js?v=11", "anomalies.js?v=11"]
   .map((path) => new URL(path, self.registration.scope).href);
 
 self.addEventListener("install", (event) => {
