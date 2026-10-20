@@ -1,4 +1,4 @@
-/* Adaptation des checklists de bureaux au formulaire commun.
+/* Adaptation des checklists au formulaire commun.
  * Les identifiants dépendent des titres/libellés, jamais de la fréquence ou de
  * la position : déplacer une ligne ou changer sa fréquence conserve son identité.
  * Le contrôle garde une copie de ce modèle pour rester fidèle après une mise à
@@ -29,22 +29,25 @@
     return `${prefix}-${fingerprint(text)}${count > 1 ? `-${count}` : ""}`;
   }
 
-  function sections(office) {
-    if (!office || office.checklist == null) return [];
-    if (!Array.isArray(office.checklist)) throw new Error("Checklist de bureau invalide.");
+  // Le format des lignes change selon l'activité ; leur identité et la copie
+  // des zones suivent les mêmes règles, sans ajouter de ligne par défaut.
+  function adaptSections(definition, { prefix, readLine }) {
+    if (!definition || definition.checklist == null) return [];
+    if (!Array.isArray(definition.checklist)) throw new Error("Checklist invalide.");
     const zones = new Map();
-    const adapted = office.checklist.map(zone => {
+    const adapted = definition.checklist.map(zone => {
       if (!zone || typeof zone.titre !== "string" || !zone.titre.trim() ||
-          !Array.isArray(zone.lignes)) throw new Error("Zone de bureau invalide.");
-      const id = occurrenceId("bureau-zone", zone.titre, zones);
+          !Array.isArray(zone.lignes)) throw new Error("Zone de checklist invalide.");
+      const id = occurrenceId(`${prefix}-zone`, zone.titre, zones);
       const lines = new Map();
       const items = zone.lignes.map(line => {
-        if (!line || typeof line.libelle !== "string" || !line.libelle.trim() ||
-            typeof line.frequence !== "string") throw new Error("Ligne de bureau invalide.");
+        const { label, frequency } = readLine(line);
+        if (typeof label !== "string" || !label.trim() ||
+            typeof frequency !== "string") throw new Error("Ligne de checklist invalide.");
         return {
-          id: occurrenceId(`${id}-ligne`, line.libelle, lines),
-          label: line.libelle,
-          frequency: line.frequence
+          id: occurrenceId(`${id}-ligne`, label, lines),
+          label,
+          frequency
         };
       });
       return { id, title: zone.titre, groups: [{ id: `${id}-lignes`, title: "", items }] };
@@ -52,33 +55,39 @@
     return validateSnapshot(adapted);
   }
 
+  function sections(office) {
+    return adaptSections(office, { prefix: "bureau", readLine: line => ({
+      label: line?.libelle, frequency: line?.frequence
+    }) });
+  }
+
   // Validation des modèles importés et copie des seuls champs utilisés.
   function validateSnapshot(value) {
     const identifiers = new Set();
     function identifier(id) {
       if (typeof id !== "string" || !ID_PATTERN.test(id) || identifiers.has(id)) {
-        throw new Error("Identifiant de modèle de bureau invalide ou répété.");
+        throw new Error("Identifiant de modèle invalide ou répété.");
       }
       identifiers.add(id);
       return id;
     }
     function text(value, required = false) {
       if (typeof value !== "string" || (required && !value.trim())) {
-        throw new Error("Texte de modèle de bureau invalide.");
+        throw new Error("Texte de modèle invalide.");
       }
       return value;
     }
-    if (!Array.isArray(value)) throw new Error("Modèle de bureau invalide.");
+    if (!Array.isArray(value)) throw new Error("Modèle invalide.");
     return value.map(section => {
-      if (!section || !Array.isArray(section.groups)) throw new Error("Zone de bureau invalide.");
+      if (!section || !Array.isArray(section.groups)) throw new Error("Zone de modèle invalide.");
       const id = identifier(section.id);
       const title = text(section.title, true);
       const groups = section.groups.map(group => {
-        if (!group || !Array.isArray(group.items)) throw new Error("Groupe de bureau invalide.");
+        if (!group || !Array.isArray(group.items)) throw new Error("Groupe de modèle invalide.");
         const groupId = identifier(group.id);
         const groupTitle = text(group.title);
         const items = group.items.map(item => {
-          if (!item) throw new Error("Ligne de bureau invalide.");
+          if (!item) throw new Error("Ligne de modèle invalide.");
           return {
             id: identifier(item.id),
             label: text(item.label, true),
@@ -91,5 +100,6 @@
     });
   }
 
+  window.CHECKLIST_MODEL = Object.freeze({ sections: adaptSections, validateSnapshot });
   window.OFFICE_MODEL = Object.freeze({ sections, validateSnapshot });
 })();

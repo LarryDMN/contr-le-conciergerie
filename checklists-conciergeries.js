@@ -1,4 +1,4 @@
-// data/checklists-conciergeries.js
+// checklists-conciergeries.js (à la racine du dépôt)
 // Listes de contrôle propres à chaque conciergerie.
 // Les identifiants (clés) doivent correspondre aux identifiants de data/conciergeries.js.
 // Ajouter une ligne : copier une ligne existante dans la zone voulue.
@@ -64,7 +64,7 @@ const checklistsConciergeries = {
       },
     ]
   },
-  "edmond-vaucher-13b-c": {
+  "edmond-vaucher-13b-13c": {
     nom: "Edmond-Vaucher 13B-C",
     checklist: [
       {
@@ -573,7 +573,7 @@ const checklistsConciergeries = {
       },
     ]
   },
-  "route-des-jeunes-105b": {
+  "jeunes-105": {
     nom: "Route des Jeunes 105B",
     checklist: [
       {
