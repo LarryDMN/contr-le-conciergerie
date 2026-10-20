@@ -1,6 +1,7 @@
-/* Configuration du formulaire : modifier les libellés ici sans changer la logique.
- * Les identifiants relient les lignes aux contrôles déjà enregistrés : conserver
- * les identifiants existants et choisir un nouvel identifiant pour toute nouvelle ligne.
+/* Notes et pied de page communs aux contrôles.
+ * Les sections ci-dessous sont le modèle historique : conserver leurs titres,
+ * libellés et identifiants pour les anciennes visites sans modèle enregistré.
+ * Pour les nouvelles conciergeries, modifier checklists-conciergeries.js.
  */
 window.CONCIERGERIE_CONFIG = {
   footer: "E. Blanco SA – Route des Jeunes 55 – 1212 Grand-Lancy – Suisse – Tél 022.343.66.07 – info@eblanco.ch – www.eblanco.ch",

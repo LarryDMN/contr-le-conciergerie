@@ -11,20 +11,22 @@
     <title>Contrôle E. Blanco</title>
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=11">
-    <script src="config.js?v=11" defer></script>
+    <link rel="stylesheet" href="style.css?v=13">
+    <script src="config.js?v=13" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="data/bureaux.js?v=11" defer></script>
-    <script src="office-model.js?v=11" defer></script>
-    <script src="people.js?v=11" defer></script>
-    <script src="insights.js?v=11" defer></script>
+    <script src="checklists-conciergeries.js?v=13" defer></script>
+    <script src="data/bureaux.js?v=13" defer></script>
+    <script src="office-model.js?v=13" defer></script>
+    <script src="conciergerie-model.js?v=13" defer></script>
+    <script src="people.js?v=13" defer></script>
+    <script src="insights.js?v=13" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js?v=11" defer></script>
-    <script src="lists.js?v=11" defer></script>
-    <script src="anomalies.js?v=11" defer></script>
-    <script src="transfer.js?v=11" defer></script>
-    <script src="app.js?v=11" defer></script>
+    <script src="pdf.js?v=13" defer></script>
+    <script src="lists.js?v=13" defer></script>
+    <script src="anomalies.js?v=13" defer></script>
+    <script src="transfer.js?v=13" defer></script>
+    <script src="app.js?v=13" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -120,7 +122,7 @@
 
     <div id="controlView" class="app-layout" hidden>
       <main id="main" class="main-content" tabindex="-1">
-        <section id="officePlaceholder" class="office-placeholder panel" aria-labelledby="officePlaceholderTitle" hidden><h2 id="officePlaceholderTitle">Modèle à venir</h2><p>Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.</p></section>
+        <section id="officePlaceholder" class="office-placeholder panel" aria-labelledby="officePlaceholderTitle" hidden><h2 id="officePlaceholderTitle">Modèle à venir</h2><p id="modelPlaceholderText">Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.</p></section>
 
         <div id="controlForm">
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">

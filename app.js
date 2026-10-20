@@ -5,10 +5,18 @@
   const baseConfig = window.CONCIERGERIE_CONFIG;
   const buildings = window.CONCIERGERIES;
   const offices = window.BUREAUX;
-  // Chaque visite de bureaux conserve son propre modèle, indépendant du catalogue.
-  const templateFor = subject => (typeof subject === 'string' ? subject : subject?.type) === 'bureaux'
-    ? { ...baseConfig, footer: baseConfig.officeFooter, sections: subject?.officeSections || [] }
-    : baseConfig;
+  const conciergeChecklists = checklistsConciergeries;
+  // Chaque nouvelle visite garde son modèle. L'absence du champ désigne les
+  // anciens contrôles : eux seuls utilisent encore le formulaire papier fixe.
+  const templateFor = subject => {
+    if ((typeof subject === 'string' ? subject : subject?.type) === 'bureaux') {
+      return { ...baseConfig, footer: baseConfig.officeFooter, sections: subject?.officeSections || [] };
+    }
+    const sections = subject && typeof subject === 'object'
+      ? Object.hasOwn(subject, 'conciergerieSections') ? subject.conciergerieSections : baseConfig.sections
+      : [];
+    return { ...baseConfig, sections };
+  };
   const typeLabels = { conciergerie: 'Contrôle conciergerie', bureaux: 'Contrôle entretien de bureaux' };
   const itemsFor = subject => templateFor(subject).sections.flatMap(section => section.groups.flatMap(group => group.items));
   let activeType = 'conciergerie';
@@ -231,7 +239,7 @@
     const timestamp = new Date().toISOString();
     return normalizeRecord({ id: uid(), type: activeType, createdAt: timestamp, updatedAt: timestamp,
       buildingId: null,
-      ...(activeType === 'bureaux' ? { officeSections: [] } : {}),
+      ...(activeType === 'bureaux' ? { officeSections: [] } : { conciergerieSections: [] }),
       buildingName: '', address: '', ...(activeType === 'bureaux' ? { cleanerName: '' } : { concierge: '' }), date: today(), rows: {},
       comments: { text: '', photos: [] } });
   }
@@ -433,15 +441,24 @@
 
   const reportConfig = record => ({ ...templateFor(record), comparison: comparisonFor(record) });
 
+  function renderModelMessage() {
+    const office = activeType === 'bureaux';
+    $('#officePlaceholderTitle').textContent = office ? 'Modèle à venir' : 'Checklist à compléter';
+    $('#modelPlaceholderText').textContent = office
+      ? 'Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.'
+      : 'Aucune checklist n’est renseignée pour cet immeuble dans checklists-conciergeries.js.';
+  }
+
   function renderEditor() {
     const record = current();
     if (!record) { renderPendingModel(); return; }
     setType(record.type);
-    const pendingOffice = activeType === 'bureaux' && !items.length;
-    $('#officePlaceholder').hidden = !pendingOffice || needsBuilding(record);
+    const pendingModel = !items.length;
+    renderModelMessage();
+    $('#officePlaceholder').hidden = !pendingModel || needsBuilding(record);
     $('#controlForm').hidden = false;
-    $('#headerControl').hidden = view !== 'control' || pendingOffice;
-    $('#controlActions').hidden = view !== 'control' || pendingOffice;
+    $('#headerControl').hidden = view !== 'control' || pendingModel;
+    $('#controlActions').hidden = view !== 'control' || pendingModel;
     $('#newControl').disabled = false;
     updatePageContext();
     $('#buildingSelectField').hidden = false;
@@ -462,7 +479,7 @@
     updatePersonValidity();
     $('#controlDate').value = record.date;
     renderPhotosRemovedNotice(record);
-    if (pendingOffice) {
+    if (pendingModel) {
       $('#inspectionFields').hidden = true;
       $('#sections').replaceChildren();
       renderList();
@@ -532,35 +549,30 @@
     const office = activeType === 'bureaux';
     const building = (office ? offices : buildings).find(building => building.id === $('#buildingSelect').value);
     if (!building) return;
-    let officeSections;
-    if (office) {
-      try {
-        officeSections = window.OFFICE_MODEL.sections(building);
-        // Une capture en cours fait aussi partie du contrôle que l'on conserve.
-        await flushChanges();
-      }
-      catch (error) { renderBuildingSelection(); throw error; }
+    let selectedSections;
+    try {
+      selectedSections = office ? window.OFFICE_MODEL.sections(building)
+        : window.CONCIERGERIE_MODEL.sections(conciergeChecklists[building.id]);
+      // Une capture en cours fait aussi partie du contrôle que l'on conserve.
+      await flushChanges();
     }
+    catch (error) { renderBuildingSelection(); throw error; }
     let record = current();
     const typedBeforeSite = needsBuilding(record) ? window.CONTROL_PEOPLE.name(record) : '';
     const sameLegacySite = !office && record.buildingId === undefined && record.address === building.adresse;
-    if (office && record.buildingId === building.id && record.officeSections?.length) {
+    if (record.buildingId === building.id && (!office || record.officeSections?.length)) {
       renderBuildingSelection();
       return;
     }
-    if (!office && record.buildingId === building.id) { renderBuildingSelection(); return; }
-    if (office && (archives.has(record.id) || record.comments.text || countPhotos(record) ||
-        (record.buildingId && window.CONTROL_PEOPLE.name(record)) || Object.values(record.rows).some(row => row.rating || row.remark))) {
-      if (!window.confirm('Choisir ce bureau crée un nouveau contrôle. Le contrôle actuel, ses notes, remarques, photos et PDF seront conservés. Continuer ?')) {
+    const legacy = !office && !Object.hasOwn(record, 'conciergerieSections');
+    const hasContent = archives.has(record.id) || record.comments.text || countPhotos(record) ||
+      (record.buildingId && window.CONTROL_PEOPLE.name(record)) || Object.values(record.rows).some(row => row.rating || row.remark);
+    if (!sameLegacySite && (legacy || hasContent)) {
+      if (!window.confirm(`Choisir ${office ? 'ce bureau' : 'cet immeuble'} crée un nouveau contrôle. Le contrôle actuel, ses lignes, notes, remarques, photos et PDF seront conservés. Continuer ?`)) {
         renderBuildingSelection(); return;
       }
       await newControl();
       record = current();
-    }
-    if (!office && ((record.buildingId && record.buildingId !== building.id) || (record.address && record.address !== building.adresse)) &&
-      !window.confirm('Changer l’immeuble de ce contrôle ? Son adresse sera remplie depuis la liste et un nom sera proposé d’après les visites de cet immeuble. Les notes, remarques et photos seront conservées.')) {
-      renderBuildingSelection();
-      return;
     }
     // Stocker un instantané, et non une référence recalculée à chaque réouverture.
     record.buildingId = building.id;
@@ -570,7 +582,13 @@
       (office ? '' : building.concierge || '');
     if (office) record.cleanerName = proposedName;
     else if (!sameLegacySite) record.concierge = proposedName;
-    if (office) record.officeSections = officeSections;
+    if (!sameLegacySite) {
+      if (office) record.officeSections = selectedSections;
+      else record.conciergerieSections = selectedSections;
+      // Seul un brouillon vierge arrive ici sans création d'une nouvelle visite.
+      record.rows = {};
+      record.lineLabels = {};
+    }
     normalizeRecord(record);
     markChanged(record);
     renderEditor();
@@ -1121,6 +1139,12 @@
         try { officeSections = window.OFFICE_MODEL.validateSnapshot(record.officeSections); }
         catch { invalid(); }
       }
+      let conciergerieSections;
+      if (Object.hasOwn(record, 'conciergerieSections')) {
+        if ((record.type ?? 'conciergerie') !== 'conciergerie') invalid();
+        try { conciergerieSections = window.CONCIERGERIE_MODEL.validateSnapshot(record.conciergerieSections); }
+        catch { invalid(); }
+      }
       // Les exports v1 sans immeuble restent compatibles ; les champs ajoutés sont facultatifs.
       if (record.buildingId != null && (typeof record.buildingId !== 'string' || !record.buildingId)) invalid();
       if (record.buildingName != null && typeof record.buildingName !== 'string') invalid();
@@ -1148,6 +1172,7 @@
         ...(record.completedAt ? { completedAt: record.completedAt } : {}),
         ...(record.photosRemovedAt ? { photosRemovedAt: record.photosRemovedAt } : {}),
         ...(officeSections ? { officeSections } : {}),
+        ...(conciergerieSections ? { conciergerieSections } : {}),
         ...(lineLabels ? { lineLabels } : {}),
         rows, comments: { text: string(record.comments.text), photos: photos(record.comments.photos) } });
     });
@@ -1541,6 +1566,7 @@
   function renderPendingModel() {
     $('#sections').replaceChildren();
     updatePageContext();
+    renderModelMessage();
     $('#officePlaceholder').hidden = false;
     $('#controlForm').hidden = true;
     $('#headerControl').hidden = true;
