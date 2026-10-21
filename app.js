@@ -3,9 +3,11 @@
   'use strict';
 
   const baseConfig = window.CONCIERGERIE_CONFIG;
-  const buildings = window.CONCIERGERIES;
-  const offices = window.BUREAUX;
-  const conciergeChecklists = checklistsConciergeries;
+  const initialCatalogs = window.CONTRACTS.seeds({ conciergeries: window.CONCIERGERIES,
+    bureaux: window.BUREAUX, checklists: checklistsConciergeries });
+  // Les filtres gardent ces tableaux ; leur contenu vient de la base locale.
+  const buildings = [];
+  const offices = [];
   // Chaque nouvelle visite garde son modèle. L'absence du champ désigne les
   // anciens contrôles : eux seuls utilisent encore le formulaire papier fixe.
   const templateFor = subject => {
@@ -48,7 +50,6 @@
   const newControlDates = new Map();
   const archives = new Map();
   const anomalies = new Map();
-  let importedCatalogs = { conciergeries: [], bureaux: [] };
   const anomalyDirty = new Set();
   const dirty = new Set();
   const versions = new Map();
@@ -73,14 +74,48 @@
   const sortedControls = (type = null) => [...controls.values()].filter(record => !type || record.type === type).sort((a, b) =>
     b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
 
+  const catalogValues = () => ({ conciergeries: buildings, bureaux: offices });
+  const catalogKey = type => type === 'bureaux' ? 'bureaux' : 'conciergeries';
+  function canonicalSiteId(type, id, catalogs = catalogValues()) {
+    if (!id) return id;
+    return catalogs[catalogKey(type)].find(site => site.id === id || site.mergedIds.includes(id))?.id || id;
+  }
+  function siteFor(record) {
+    const type = record?.type || 'conciergerie';
+    const sites = catalogValues()[catalogKey(type)];
+    if (record?.buildingId) return sites.find(site => site.id === canonicalSiteId(type, record.buildingId));
+    const seed = initialCatalogs[catalogKey(type)].find(site => (record?.address && site.adresse === record.address) ||
+      (record?.buildingName && site.nom === record.buildingName));
+    return sites.find(site => site.id === seed?.id || (record?.address && site.adresse === record.address));
+  }
+  const isArchived = record => siteFor(record)?.status === 'archived';
+  const contractEnd = record => isArchived(record) ? siteFor(record).endDate : null;
+
   const lists = window.CONTROL_LISTS.create({ controls, archives, typeLabels, buildingName, displayDate,
     catalogs: { conciergerie: buildings, bureaux: offices },
     ratedCount, escapeHTML, itemCount: record => itemsFor(record).length,
-    versionOf: record => versions.get(record.id) || record.updatedAt });
+    versionOf: record => versions.get(record.id) || record.updatedAt, isArchived, contractEnd });
   const anomalyUI = window.ANOMALIES.createUI({ anomalies, controls, escapeHTML, displayDate, buildingName,
     onOpen: id => perform(() => switchControl(id)),
     onResolve: id => perform(() => resolveAnomaly(id)),
-    onReopen: id => perform(() => reopenAnomaly(id)), onPhoto: viewAnomalyPhoto });
+    onReopen: id => perform(() => reopenAnomaly(id)), onPhoto: viewAnomalyPhoto, isArchived, contractEnd });
+  const contractUI = window.CONTRACTS_UI.create({ getSites: type => catalogValues()[catalogKey(type)],
+    getType: () => activeType, getUsage: siteUsage, today, displayDate, escapeHTML, notify,
+    onSave: (site, isNew) => contractAction(() => saveSite(site, isNew)),
+    onArchive: (id, date) => contractAction(() => changeContract(id, date, false)),
+    onReactivate: (id, date) => contractAction(() => changeContract(id, date, true)),
+    onDelete: id => contractAction(() => deleteSite(id)),
+    onMerge: (target, source) => contractAction(() => mergeSites(target, source)),
+    onReset: () => contractAction(resetSites) });
+
+  // Les dialogues de gestion affichent eux-mêmes les erreurs près du champ.
+  // Le verrou commun empêche une navigation/import pendant leur écriture.
+  async function contractAction(action) {
+    if (actionBusy) throw new Error('Une opération est déjà en cours. Réessayez dans un instant.');
+    actionBusy = true;
+    try { return await action(); }
+    finally { actionBusy = false; }
+  }
 
   function notify(message, error = false, persistent = false) {
     clearTimeout(noticeTimer);
@@ -161,24 +196,126 @@
   async function readArchives() {
     let request;
     await transaction('readonly', store => { request = store.getAll(); }, 'archives');
-    request.result.forEach(archive => archives.set(archive.controlId, archive));
+    request.result.forEach(archive => archives.set(archive.controlId, relinkSite(archive)));
   }
 
-  // Les sites reçus par JSON complètent les fichiers locaux, sans les remplacer.
-  function mergeCatalogs(catalogs) {
-    for (const [key, target] of [['conciergeries', buildings], ['bureaux', offices]]) {
-      const known = new Set(target.map(site => site.id));
-      catalogs[key].forEach(site => {
-        if (!known.has(site.id)) { target.push(structuredClone(site)); known.add(site.id); }
-      });
-    }
+  function setCatalogs(catalogs) {
+    buildings.splice(0, buildings.length, ...catalogs.conciergeries);
+    offices.splice(0, offices.length, ...catalogs.bureaux);
   }
 
   async function readCatalogs() {
     let request;
-    await transaction('readonly', store => { request = store.get('importedCatalogs'); }, 'settings');
-    importedCatalogs = window.CONTROL_TRANSFER.validateCatalogs(request.result?.value);
-    mergeCatalogs(importedCatalogs);
+    await transaction('readonly', store => { request = store.get('siteCatalogs'); }, 'settings');
+    if (request.result) { setCatalogs(window.CONTRACTS.validateCatalogs(request.result.value)); return; }
+    // Copie unique des fichiers de départ et migration des anciens sites importés.
+    let legacy;
+    await transaction('readonly', store => { legacy = store.get('importedCatalogs'); }, 'settings');
+    const imported = window.CONTROL_TRANSFER.validateCatalogs(legacy.result?.value);
+    const next = structuredClone(initialCatalogs);
+    for (const key of ['conciergeries', 'bureaux']) {
+      const known = new Set(next[key].map(site => site.id));
+      const source = imported[key].filter(site => !known.has(site.id));
+      next[key].push(...window.CONTRACTS.seeds({ [key]: source })[key]);
+    }
+    await transaction('readwrite', store => store.put({ name: 'siteCatalogs', value: next }), 'settings');
+    setCatalogs(next);
+  }
+
+  function relinkSite(record, catalogs = catalogValues()) {
+    const id = canonicalSiteId(record.type, record.buildingId, catalogs);
+    return id === record.buildingId ? record : { ...record, buildingId: id };
+  }
+
+  function siteUsage(type, id) {
+    const matches = record => (record.type || 'conciergerie') === type && siteFor(record)?.id === id;
+    return { controls: [...controls.values()].filter(matches).length,
+      archives: [...archives.values()].filter(matches).length,
+      anomalies: [...anomalies.values()].filter(matches).length };
+  }
+
+  // Une fusion ne change que les liens techniques : les clichés et PDF restent intacts.
+  async function persistCatalogs(value) {
+    await prepareManagement();
+    const next = window.CONTRACTS.validateCatalogs(value);
+    const changed = collection => [...collection.values()].map(record => [record, relinkSite(record, next)])
+      .filter(([before, after]) => before !== after).map(([, after]) => after);
+    const records = changed(controls), pdfs = changed(archives), followUp = changed(anomalies);
+    await managedMutation(async () => {
+      await transaction('readwrite', stores => {
+        stores.settings.put({ name: 'siteCatalogs', value: next });
+        records.forEach(record => stores.controls.put(record));
+        pdfs.forEach(record => stores.archives.put(record));
+        followUp.forEach(record => stores.anomalies.put(record));
+      }, ['settings', 'controls', 'archives', 'anomalies']);
+      setCatalogs(next);
+      records.forEach(record => { controls.set(record.id, record); registeredControls.set(record.id, structuredClone(record)); });
+      pdfs.forEach(record => archives.set(record.controlId, record));
+      followUp.forEach(record => anomalies.set(record.id, record));
+    });
+    lists.prune();
+    contractUI.render(activeType);
+    return true;
+  }
+
+  async function saveSite(value, isNew) {
+    const site = window.CONTRACTS.validateSite(value, activeType);
+    const next = structuredClone(catalogValues());
+    const sites = next[catalogKey(activeType)];
+    if (window.CONTRACTS.duplicates(site, sites, isNew ? null : site.id).some(site => site.status === 'active')) {
+      throw new Error('Cet immeuble existe déjà et est actif');
+    }
+    const index = sites.findIndex(candidate => candidate.id === site.id);
+    if (isNew && (index !== -1 || sites.some(candidate => candidate.mergedIds.includes(site.id)))) {
+      throw new Error('Cet identifiant d’immeuble existe déjà.');
+    }
+    if (!isNew && index === -1) throw new Error('Cet immeuble n’est plus disponible.');
+    if (isNew) sites.push(site); else sites[index] = site;
+    await persistCatalogs(next);
+    notify('Fiche enregistrée. Les contrôles existants restent inchangés.');
+    return true;
+  }
+
+  async function changeContract(id, date, reactivate) {
+    const next = structuredClone(catalogValues());
+    const sites = next[catalogKey(activeType)];
+    const index = sites.findIndex(site => site.id === id);
+    if (index < 0) throw new Error('Cet immeuble n’est plus disponible.');
+    if (reactivate && window.CONTRACTS.duplicates(sites[index], sites, id).some(site => site.status === 'active')) {
+      throw new Error('Cet immeuble existe déjà et est actif');
+    }
+    sites[index] = window.CONTRACTS[reactivate ? 'reactivate' : 'archive'](sites[index], date);
+    await persistCatalogs(next);
+    notify(reactivate ? 'Contrat réactivé ; son historique est conservé.' : 'Contrat archivé. Les contrôles et PDF restent disponibles.');
+    return true;
+  }
+
+  async function deleteSite(id) {
+    await prepareManagement();
+    const usage = siteUsage(activeType, id);
+    if (usage.controls) {
+      throw new Error('Cet immeuble possède des contrôles enregistrés. Utilisez « Archiver le contrat ».');
+    }
+    const next = structuredClone(catalogValues());
+    next[catalogKey(activeType)] = next[catalogKey(activeType)].filter(site => site.id !== id);
+    await persistCatalogs(next);
+    notify('Immeuble supprimé.');
+    return true;
+  }
+
+  async function mergeSites(targetId, sourceId) {
+    const next = window.CONTRACTS.mergeCatalogs(catalogValues(), activeType, targetId, sourceId, today());
+    await persistCatalogs(next);
+    notify('Fiches fusionnées. Tous les contrôles et PDF sont conservés.');
+    return true;
+  }
+
+  async function resetSites() {
+    await prepareManagement();
+    const next = window.CONTRACTS.resetCatalogs(catalogValues(), initialCatalogs, siteUsage, today(), activeType);
+    await persistCatalogs(next);
+    notify('Liste de départ restaurée. Les sites locaux liés à un historique restent archivés.');
+    return true;
   }
 
   function deriveAnomalies(records, existing = anomalies) {
@@ -194,7 +331,7 @@
   async function readAnomalies() {
     let request;
     await transaction('readonly', store => { request = store.getAll(); }, 'anomalies');
-    request.result.forEach(anomaly => anomalies.set(anomaly.id, anomaly));
+    request.result.forEach(anomaly => anomalies.set(anomaly.id, relinkSite(anomaly)));
     // Migration idempotente : les anciens relevés apparaissent sans modifier leurs notes ni PDF.
     const updates = deriveAnomalies([...controls.values()]);
     const updatedIds = new Set(updates.map(anomaly => anomaly.id));
@@ -219,6 +356,7 @@
   const blankRow = () => ({ rating: null, remark: '', photos: [] });
   function normalizeRecord(record) {
     record.type ??= 'conciergerie';
+    if (record.buildingId) record.buildingId = canonicalSiteId(record.type, record.buildingId);
     // Aucun rapprochement automatique : les anciennes adresses restent intactes.
     record.buildingName ??= '';
     record.rows ||= {};
@@ -442,11 +580,8 @@
   const reportConfig = record => ({ ...templateFor(record), comparison: comparisonFor(record) });
 
   function renderModelMessage() {
-    const office = activeType === 'bureaux';
-    $('#officePlaceholderTitle').textContent = office ? 'Modèle à venir' : 'Checklist à compléter';
-    $('#modelPlaceholderText').textContent = office
-      ? 'Le modèle de contrôle d’entretien de bureaux sera disponible lorsque sa liste de lignes aura été renseignée.'
-      : 'Aucune checklist n’est renseignée pour cet immeuble dans checklists-conciergeries.js.';
+    $('#officePlaceholderTitle').textContent = 'Checklist à compléter';
+    $('#modelPlaceholderText').textContent = 'Renseignez la checklist dans « Gérer les immeubles », puis créez une nouvelle visite.';
   }
 
   function renderEditor() {
@@ -474,6 +609,8 @@
       ? 'Nom obligatoire, modifiable pour cette visite et enregistré avec ce contrôle.'
       : 'Nom proposé d’après la dernière visite, modifiable pour ce contrôle.';
     renderBuildingSelection();
+    $('#controlContractNotice').hidden = !isArchived(record);
+    $('#controlContractNotice').textContent = isArchived(record) ? `Contrat terminé le ${displayDate(contractEnd(record))}` : '';
     $('#address').value = record.address;
     $('#concierge').value = window.CONTROL_PEOPLE.name(record);
     updatePersonValidity();
@@ -495,18 +632,22 @@
     const record = current();
     const office = activeType === 'bureaux';
     const catalog = office ? offices : buildings;
+    const active = catalog.filter(site => site.status === 'active');
+    const archived = catalog.find(site => site.id === record.buildingId && site.status === 'archived');
     const legacy = !office && record.buildingId === undefined;
     const missing = !!record.buildingId && !catalog.some(building => building.id === record.buildingId);
     const select = $('#buildingSelect');
     select.innerHTML = `<option value="" disabled>${legacy ? 'Adresse historique conservée' : office ? 'Choisir un bureau' : 'Choisir un immeuble'}</option>` +
       (missing ? `<option value="${escapeHTML(record.buildingId)}">${escapeHTML(buildingName(record))} (retiré de la liste)</option>` : '') +
-      catalog.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
+      (archived ? `<option value="${escapeHTML(archived.id)}" disabled>${escapeHTML(buildingName(record))} (archivé)</option>` : '') +
+      active.map(building => `<option value="${escapeHTML(building.id)}">${escapeHTML(building.nom)}</option>`).join('');
     select.value = record.buildingId || '';
     select.required = !legacy;
     $('#buildingHelp').textContent = legacy
       ? 'Contrôle antérieur : l’adresse et le nom enregistrés sont conservés.'
       : missing ? 'Ce site a été retiré de la liste. Les informations et le modèle de ce contrôle sont conservés.'
-        : needsBuilding(record) ? `Choisissez ${office ? 'le bureau' : 'l’immeuble'} pour commencer le contrôle.`
+        : needsBuilding(record) ? active.length ? `Choisissez ${office ? 'le bureau' : 'l’immeuble'} pour commencer le contrôle.`
+          : 'Aucun immeuble actif. Utilisez « Gérer les immeubles » pour en ajouter ou réactiver un.'
           : 'Adresse reprise de la liste ; le nom est enregistré uniquement avec cette visite.';
     const disabled = needsBuilding(record) || !items.length;
     $('#inspectionFields').disabled = disabled;
@@ -547,12 +688,12 @@
 
   async function chooseBuilding() {
     const office = activeType === 'bureaux';
-    const building = (office ? offices : buildings).find(building => building.id === $('#buildingSelect').value);
+    const building = (office ? offices : buildings).find(building => building.id === $('#buildingSelect').value && building.status === 'active');
     if (!building) return;
     let selectedSections;
     try {
       selectedSections = office ? window.OFFICE_MODEL.sections(building)
-        : window.CONCIERGERIE_MODEL.sections(conciergeChecklists[building.id]);
+        : window.CONCIERGERIE_MODEL.sections(building);
       // Une capture en cours fait aussi partie du contrôle que l'on conserve.
       await flushChanges();
     }
@@ -579,7 +720,7 @@
     record.buildingName = building.nom;
     record.address = building.adresse;
     const proposedName = typedBeforeSite || window.CONTROL_PEOPLE.previousName(record, registeredControls) ||
-      (office ? '' : building.concierge || '');
+      window.CONTRACTS.person(building, activeType);
     if (office) record.cleanerName = proposedName;
     else if (!sameLegacySite) record.concierge = proposedName;
     if (!sameLegacySite) {
@@ -741,6 +882,9 @@
     lists.prune();
     renderList();
     if (view === 'folders') renderFolders();
+    if (view === 'contracts') contractUI.render(activeType);
+    if (view === 'anomalies') anomalyUI.render(activeType);
+    if (view === 'dashboard') renderDashboard();
     if (view === 'control') {
       if (current()) renderEditor();
       else showView('controls');
@@ -960,8 +1104,17 @@
       section: options.type, controlCount: records.length, anomalyCount: savedAnomalies.length,
       archiveCount: pdfArchives.length, includesPDFs: options.includePDFs,
       scope: controlIds === null ? 'all' : 'selection' };
-    const payload = { format: 'conciergerie-controles', version: 4, exportedAt: timestamp, exportInfo,
+    const complete = controlIds === null && archiveIds === null && !options.from && !options.to;
+    const owners = [...records, ...savedAnomalies, ...selectedArchives];
+    const siteCatalogs = {};
+    for (const type of ['conciergerie', 'bureaux']) {
+      const used = new Set(owners.filter(record => record.type === type).map(record => canonicalSiteId(type, record.buildingId)));
+      siteCatalogs[catalogKey(type)] = catalogValues()[catalogKey(type)].filter(site =>
+        (options.type === 'both' || options.type === type) && (complete || used.has(site.id)));
+    }
+    const payload = { format: 'conciergerie-controles', version: 5, exportedAt: timestamp, exportInfo,
       controls: records, archives: pdfArchives, anomalies: savedAnomalies,
+      siteCatalogs,
       catalogs: window.CONTROL_TRANSFER.catalogs(records, [...savedAnomalies, ...selectedArchives],
         { conciergerie: buildings, bureaux: offices }) };
     downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), window.CONTROL_TRANSFER.filename(options));
@@ -1087,11 +1240,16 @@
   // Import strict et atomique : un fichier invalide ne modifie aucun contrôle existant.
   function validateImport(payload) {
     const invalid = () => { throw new Error('Fichier de sauvegarde invalide. Aucun contrôle n’a été importé.'); };
-    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2, 3, 4].includes(payload.version) ||
+    if (!payload || payload.format !== 'conciergerie-controles' || ![1, 2, 3, 4, 5].includes(payload.version) ||
       !Array.isArray(payload.controls) || (payload.version >= 2 && !Array.isArray(payload.archives)) ||
       (payload.version >= 3 && !Array.isArray(payload.anomalies))) invalid();
     const catalogs = window.CONTROL_TRANSFER.validateCatalogs(payload.catalogs);
-    if (payload.version === 4) {
+    let siteCatalogs = null;
+    if (payload.version >= 5) {
+      if (!payload.siteCatalogs) invalid();
+      siteCatalogs = window.CONTRACTS.validateCatalogs(payload.siteCatalogs);
+    }
+    if (payload.version >= 4) {
       const info = payload.exportInfo;
       const period = info?.period;
       if (!info || typeof info.createdAt !== 'string' || Number.isNaN(Date.parse(info.createdAt)) ||
@@ -1205,7 +1363,17 @@
       ? window.ANOMALIES.validate(payload.anomalies, { validDate, photos }) : [];
     savedAnomalies.forEach(anomaly => registerOwnerType(anomaly.controlId, anomaly.type));
     checkAnomalyIdentities(records, savedAnomalies, invalid);
-    return { records, pdfArchives, savedAnomalies, catalogs };
+    return { records, pdfArchives, savedAnomalies, catalogs, siteCatalogs };
+  }
+
+  function planSiteImport(data, replace = false) {
+    const incoming = data.siteCatalogs || window.CONTRACTS.seeds({
+      conciergeries: data.catalogs.conciergeries.filter(site => canonicalSiteId('conciergerie', site.id) === site.id &&
+        !buildings.some(known => known.id === site.id)),
+      bureaux: data.catalogs.bureaux.filter(site => canonicalSiteId('bureaux', site.id) === site.id &&
+        !offices.some(known => known.id === site.id))
+    });
+    return window.CONTRACTS.importCatalogs(catalogValues(), incoming, initialCatalogs, { replace });
   }
 
   function confirmImport(data) {
@@ -1216,7 +1384,18 @@
     let page = 0;
     const render = () => {
       const replaced = [...choices.values()].filter(choice => choice === 'replace').length;
-      $('#importSummary').textContent = `${data.records.length - conflicts.length} contrôle(s) à ajouter, ${conflicts.length - replaced} ignoré(s), ${conflicts.length} en doublon, dont ${replaced} à remplacer. Le fichier contient ${data.savedAnomalies.length} anomalie(s) et ${data.pdfArchives.length} PDF.`;
+      let sites;
+      try {
+        sites = planSiteImport(data, $('#importReplaceSites').checked);
+        $('#importError').hidden = true;
+        $('#importConfirm').disabled = false;
+      } catch (error) {
+        $('#importError').textContent = error.message;
+        $('#importError').hidden = false;
+        $('#importConfirm').disabled = true;
+      }
+      $('#importSummary').textContent = `${data.records.length - conflicts.length} contrôle(s) à ajouter, ${conflicts.length - replaced} ignoré(s), ${conflicts.length} en doublon, dont ${replaced} à remplacer. Le fichier contient ${data.savedAnomalies.length} anomalie(s) et ${data.pdfArchives.length} PDF.` +
+        (sites ? ` Immeubles : ${sites.added} à ajouter, ${sites.updated} à actualiser, ${sites.kept} conservé(s).` : ' Vérifiez les conflits de fiches avant import.');
       $('#importConflictTools').hidden = !conflicts.length;
       $('#importConflicts').innerHTML = conflicts.slice(page * 50, (page + 1) * 50).map(record => `
         <div class="import-conflict"><p class="import-conflict-title">${escapeHTML(buildingName(record))}</p>
@@ -1230,6 +1409,8 @@
       $('#importConflictNext').disabled = page + 1 >= pages;
     };
     $('#importError').hidden = true;
+    $('#importReplaceSites').checked = false;
+    $('#importSitesTools').hidden = !data.siteCatalogs;
     render();
     return new Promise(resolve => {
       const click = event => {
@@ -1241,6 +1422,7 @@
         render();
       };
       const changed = event => {
+        if (event.target.id === 'importReplaceSites') { render(); return; }
         const id = event.target.dataset.importConflict;
         if (choices.has(id)) { choices.set(id, event.target.value); render(); }
       };
@@ -1254,7 +1436,7 @@
         dialog.removeEventListener('cancel', escaped);
         dialog.removeEventListener('close', closed);
         $('#importCancel').removeEventListener('click', cancel);
-        resolve(dialog.returnValue === 'import' ? choices : null);
+        resolve(dialog.returnValue === 'import' ? { choices, replaceSites: $('#importReplaceSites').checked } : null);
       };
       form.addEventListener('submit', submit);
       dialog.addEventListener('click', click);
@@ -1275,8 +1457,15 @@
     catch { throw new Error('Ce fichier ne contient pas une sauvegarde JSON valide.'); }
     const data = validateImport(payload);
     await flushChanges();
-    const choices = await confirmImport(data);
-    if (!choices) return;
+    const confirmation = await confirmImport(data);
+    if (!confirmation) return;
+    const { choices, replaceSites } = confirmation;
+    const sitePlan = planSiteImport(data, replaceSites);
+    // Les anciens exports d'une fiche fusionnée retrouvent sa cible, même si
+    // leurs noms/adresses historiques sont différents du catalogue actuel.
+    data.records = data.records.map(record => relinkSite(record, sitePlan.catalogs));
+    data.pdfArchives = data.pdfArchives.map(record => relinkSite(record, sitePlan.catalogs));
+    data.savedAnomalies = data.savedAnomalies.map(record => relinkSite(record, sitePlan.catalogs));
     const replaced = new Set([...choices].filter(([, choice]) => choice === 'replace').map(([id]) => id));
     const records = data.records.filter(record => !choices.has(record.id) || replaced.has(record.id));
     const accepted = new Set(records.map(record => record.id));
@@ -1318,30 +1507,35 @@
         imported.set(anomaly.id, { ...anomaly, controlDeleted: false });
       }
     });
-    const catalogs = structuredClone(importedCatalogs);
-    for (const [key, target] of [['conciergeries', buildings], ['bureaux', offices]]) {
-      const known = new Set(target.map(site => site.id));
-      data.catalogs[key].forEach(site => { if (!known.has(site.id)) { catalogs[key].push(site); known.add(site.id); } });
-    }
+    const linkUpdates = (collection, excluded) => [...collection.values()]
+      .filter(record => !excluded.has(record.controlId || record.id))
+      .map(record => [record, relinkSite(record, sitePlan.catalogs)])
+      .filter(([before, after]) => before !== after).map(([, after]) => after);
+    const allRecords = records.concat(linkUpdates(controls, accepted));
+    const allPDFs = pdfArchives.concat(linkUpdates(archives, new Set(pdfArchives.map(record => record.controlId))));
+    const allAnomalies = new Map([...anomalies, ...imported]);
+    allAnomalies.forEach(anomaly => {
+      const linked = relinkSite(anomaly, sitePlan.catalogs);
+      if (linked !== anomaly) imported.set(anomaly.id, linked);
+    });
     const added = records.length - replaced.size;
     await managedMutation(async () => {
       await transaction('readwrite', stores => {
-        records.forEach(record => stores.controls.put(record));
-        pdfArchives.forEach(archive => stores.archives.put(archive));
+        allRecords.forEach(record => stores.controls.put(record));
+        allPDFs.forEach(archive => stores.archives.put(archive));
         imported.forEach(anomaly => stores.anomalies.put(anomaly));
-        stores.settings.put({ name: 'importedCatalogs', value: catalogs });
+        stores.settings.put({ name: 'siteCatalogs', value: sitePlan.catalogs });
       }, ['controls', 'archives', 'anomalies', 'settings']);
-      records.forEach(record => {
+      setCatalogs(sitePlan.catalogs);
+      allRecords.forEach(record => {
         controls.set(record.id, record);
         registeredControls.set(record.id, structuredClone(record));
         versions.set(record.id, (versions.get(record.id) || 0) + 1);
         dirty.delete(record.id);
         newControlDates.delete(record.id);
       });
-      pdfArchives.forEach(archive => archives.set(archive.controlId, archive));
+      allPDFs.forEach(archive => archives.set(archive.controlId, archive));
       imported.forEach(anomaly => { anomalies.set(anomaly.id, anomaly); anomalyDirty.delete(anomaly.id); });
-      importedCatalogs = catalogs;
-      mergeCatalogs(catalogs);
     });
     lists.prune();
     if (records.length) {
@@ -1355,8 +1549,8 @@
     } else if (pdfArchives.length) {
       showView('folders');
       renderFolders();
-    }
-    notify(`${added} contrôle(s) ajouté(s), ${data.records.length - records.length} ignoré(s), ${replaced.size} remplacé(s) ; ${pdfArchives.length} PDF importé(s).`);
+    } else refreshManagementViews();
+    notify(`${added} contrôle(s) ajouté(s), ${data.records.length - records.length} ignoré(s), ${replaced.size} remplacé(s) ; ${pdfArchives.length} PDF importé(s), ${sitePlan.added} fiche(s) ajoutée(s), ${sitePlan.updated} actualisée(s).`);
   }
 
   function printPhotos(photos) {
@@ -1402,14 +1596,14 @@
   // Le titre visible situe la page ; l'onglet conserve le nom fixe de l'application.
   function updatePageContext() {
     if (view === 'control') route = { view, type: activeType, controlId: currentId };
-    const labels = { menu: 'Menu', controls: 'Mes contrôles', anomalies: 'Suivi des anomalies',
+    const labels = { menu: 'Menu', controls: 'Mes contrôles', anomalies: 'Suivi des anomalies', contracts: 'Gérer les immeubles',
       dashboard: 'Tableau de bord', control: newControlDates.has(currentId) ? 'Nouveau contrôle' : 'Contrôle' };
     const title = view === 'home' ? 'Accueil' : view === 'folders' ? 'Accueil > Dossiers'
       : `${typeLabels[activeType]} > ${labels[view]}`;
     $('#pageTitle').textContent = title;
     $('#sectionBackButton').hidden = view === 'home';
     $('#homeButton').hidden = view === 'home';
-    $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control'].includes(view);
+    $('#dashboardButton').hidden = !['menu', 'controls', 'anomalies', 'control', 'contracts'].includes(view);
   }
 
   function showView(nextView, { remember = true } = {}) {
@@ -1417,7 +1611,7 @@
     else if (remember && (route.view !== nextView || route.type !== activeType)) routeHistory.push(route);
     view = nextView;
     route = { view, type: activeType, controlId: view === 'control' ? currentId : null };
-    const views = { home: 'homeView', menu: 'sectionMenuView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView', dashboard: 'dashboardView' };
+    const views = { home: 'homeView', menu: 'sectionMenuView', contracts: 'contractsView', controls: 'controlsView', anomalies: 'anomaliesView', control: 'controlView', folders: 'foldersView', dashboard: 'dashboardView' };
     Object.entries(views).forEach(([name, id]) => { $(`#${id}`).hidden = view !== name; });
     $('.skip-link').href = view === 'control' ? '#main' : `#${views[view]}`;
     updatePageContext();
@@ -1427,6 +1621,7 @@
     if (view === 'controls') renderList();
     if (view === 'anomalies') anomalyUI.render(activeType);
     if (view === 'dashboard') renderDashboard();
+    if (view === 'contracts') contractUI.render(activeType);
     window.scrollTo(0, 0);
   }
 
@@ -1454,9 +1649,15 @@
     $('#newControl').disabled = activeType === 'bureaux' && !offices.length;
   }
 
+  async function openContracts() {
+    await prepareManagement();
+    showView('contracts');
+  }
+
   async function openDashboard() {
     await prepareManagement();
     $('#dashboardSort').value = 'anomalies';
+    $('#dashboardIncludeArchived').checked = false;
     showView('dashboard');
   }
 
@@ -1467,10 +1668,15 @@
     $('#dashboardSummaryControls').textContent = result.summary.totalControls;
     $('#dashboardSummaryAnomalies').textContent = result.summary.openAnomalies;
     $('#dashboardSummaryDate').textContent = result.summary.lastDate ? displayDate(result.summary.lastDate) : 'Aucun contrôle';
-    $('#dashboardEmpty').hidden = result.cards.length > 0;
+    const siteRecord = card => ({ type: activeType,
+      buildingId: card.key.startsWith('id:') ? card.key.slice(3) : null, buildingName: card.name });
+    const ended = card => contractEnd(siteRecord(card));
+    const cards = result.cards.filter(card => $('#dashboardIncludeArchived').checked || !isArchived(siteRecord(card)));
+    $('#dashboardEmpty').hidden = cards.length > 0;
     const decimal = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-    $('#dashboardCards').innerHTML = result.cards.map(card => `<button type="button" class="dashboard-card" data-dashboard-site="${escapeHTML(card.key)}">
+    $('#dashboardCards').innerHTML = cards.map(card => `<button type="button" class="dashboard-card" data-dashboard-site="${escapeHTML(card.key)}">
       <span class="dashboard-card-name">${escapeHTML(card.name)}</span>
+      ${ended(card) ? `<span class="dashboard-card-date">Contrat terminé le ${escapeHTML(displayDate(ended(card)))}</span>` : ''}
       ${card.hasControl ? `<span class="dashboard-card-stats"><span><small>Moyenne du dernier contrôle</small><strong>${card.average === null ? 'Non noté' : decimal.format(card.average)}</strong></span>
         <span><small>Anomalies ouvertes</small><strong>${card.openAnomalies}</strong></span></span>
         <span class="dashboard-card-date">Dernier contrôle : ${escapeHTML(displayDate(card.latestDate))}</span>`
@@ -1782,6 +1988,7 @@
     $('#homeButton').addEventListener('click', () => perform(goHome));
     $('#dashboardButton').addEventListener('click', () => perform(openDashboard));
     $('#dashboardSort').addEventListener('change', renderDashboard);
+    $('#dashboardIncludeArchived').addEventListener('change', renderDashboard);
     $('#dashboardCards').addEventListener('click', event => {
       const card = event.target.closest('[data-dashboard-site]');
       if (card) perform(async () => {
@@ -1793,12 +2000,14 @@
     $('#menuNewControl').addEventListener('click', () => perform(newControl));
     $('#menuControls').addEventListener('click', () => perform(openControls));
     $('#menuAnomalies').addEventListener('click', () => perform(openAnomalies));
+    $('#menuContracts').addEventListener('click', () => perform(openContracts));
     $('.brand').addEventListener('click', event => { event.preventDefault(); perform(goHome); });
     $('#openFolders').addEventListener('click', () => perform(openFolders));
     $('#homeExport').addEventListener('click', () => perform(exportControls));
     $('#homeImport').addEventListener('click', () => $('#importFile').click());
     lists.bind();
     anomalyUI.bind();
+    contractUI.bind();
     $('#exportSelectedControls').addEventListener('click', () => perform(() => {
       const ids = lists.selectedControls(activeType);
       return exportControls(ids);

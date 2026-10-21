@@ -104,10 +104,10 @@
   }
 
   function createUI({ anomalies, controls, escapeHTML, displayDate, buildingName,
-    onOpen, onResolve, onReopen, onPhoto }) {
+    onOpen, onResolve, onReopen, onPhoto, isArchived = () => false, contractEnd = () => null }) {
     const $ = name => document.getElementById(name);
     const states = new Map(['conciergerie', 'bureaux'].map(type => [type, {
-      status: 'open', building: '', query: '', page: 0
+      status: 'open', building: '', query: '', includeArchived: true, page: 0
     }]));
     let activeType = 'conciergerie';
     let bound = false;
@@ -125,8 +125,10 @@
     function card(anomaly) {
       const deleted = anomaly.controlDeleted || !controls.has(anomaly.controlId);
       const anomalyId = escapeHTML(anomaly.id);
+      const endDate = contractEnd(anomaly);
       return `<article class="anomaly-card" data-anomaly-card="${anomalyId}">
         <p class="anomaly-building">${escapeHTML(nameOf(anomaly))}</p>
+        ${endDate ? `<p class="anomaly-meta">Contrat terminé le ${escapeHTML(displayDate(endDate))}</p>` : ''}
         <h3>${deleted ? escapeHTML(anomaly.label) : `<button type="button" class="anomaly-open" data-anomaly-open="${anomalyId}">${escapeHTML(anomaly.label)}</button>`}</h3>
         <p class="anomaly-meta">Zone : ${escapeHTML(anomaly.zone)}</p>
         <p class="anomaly-meta">${escapeHTML(window.CONTROL_PEOPLE.label(anomaly))} : ${escapeHTML(window.CONTROL_PEOPLE.display(anomaly))}</p>
@@ -144,7 +146,9 @@
     function render(type = activeType) {
       activeType = type;
       const state = states.get(type);
-      const all = [...anomalies.values()].filter(anomaly => anomaly.type === type);
+      if ($('anomalyIncludeArchived')) $('anomalyIncludeArchived').checked = state.includeArchived;
+      const all = [...anomalies.values()].filter(anomaly => anomaly.type === type &&
+        (state.includeArchived || !isArchived(anomaly)));
       const buildings = new Map();
       all.forEach(anomaly => { if (!buildings.has(buildingKey(anomaly))) buildings.set(buildingKey(anomaly), nameOf(anomaly)); });
       const select = $('anomalyBuildingFilter');
@@ -177,7 +181,7 @@
       const page = filtered.slice(state.page * PAGE_SIZE, (state.page + 1) * PAGE_SIZE);
       $('anomalyList').innerHTML = page.map(card).join('');
       $('anomaliesEmpty').hidden = filtered.length > 0;
-      $('anomaliesEmpty').textContent = state.query || state.building ? 'Aucune anomalie ne correspond à ces filtres.' :
+      $('anomaliesEmpty').textContent = state.query || state.building || !state.includeArchived ? 'Aucune anomalie ne correspond à ces filtres.' :
         state.status === 'resolved' ? 'Aucune anomalie réglée dans cette section.' : 'Aucune anomalie en cours dans cette section.';
       const start = filtered.length ? state.page * PAGE_SIZE + 1 : 0;
       const end = Math.min((state.page + 1) * PAGE_SIZE, filtered.length);
@@ -215,6 +219,12 @@
           state.page = 0;
           render();
         });
+      });
+      $('anomalyIncludeArchived')?.addEventListener('change', event => {
+        const state = states.get(activeType);
+        state.includeArchived = event.target.checked;
+        state.page = 0;
+        render();
       });
       $('anomalyPagination').addEventListener('click', event => {
         const button = event.target.closest('button');
