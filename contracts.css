@@ -1,0 +1,45 @@
+/* Fiches de contrats et édition des checklists : mêmes couleurs et commandes
+ * que le contrôle, avec des colonnes qui restent utilisables à 320 pixels. */
+.contracts-view { width: 100%; max-width: 1080px; min-width: 0; margin: 0 auto; padding: var(--espace-6) var(--espace-3); }
+.contracts-toolbar, .contract-card, .contracts-reset { padding: var(--espace-4); }
+.contracts-toolbar, .contracts-form-grid, .contracts-checklist-editor, .contract-checklist-zones, .contracts-list { display: grid; gap: var(--espace-4); min-width: 0; }
+.contracts-filters { display: grid; gap: var(--espace-3); grid-template-columns: minmax(0, 1fr); }
+.contracts-list { margin-top: var(--espace-4); }
+.contract-card { min-width: 0; overflow-wrap: anywhere; }
+.contract-card-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--espace-2); }
+.contract-card-heading h3 { min-width: 0; }
+.contract-card p, .contract-card details { margin-top: var(--espace-2); }
+.contract-status { display: inline-flex; align-items: center; min-height: 28px; border-radius: var(--rayon); padding: 2px var(--espace-2); background: var(--bleu-clair); color: var(--anthracite); font-size: var(--texte-petit); }
+.contract-status.is-archived { background: var(--gris-clair); color: var(--gris); }
+.contract-ended { font-weight: 600; }
+.contract-dates { display: grid; gap: var(--espace-1); margin: var(--espace-3) 0 0; }
+.contract-dates div { display: flex; flex-wrap: wrap; gap: var(--espace-1) var(--espace-2); }
+.contract-dates dt { color: var(--gris); }
+.contract-dates dd { margin: 0; }
+.contract-actions { display: flex; flex-wrap: wrap; gap: var(--espace-2); margin-top: var(--espace-3); }
+.contract-actions > .button { flex: 1 1 130px; min-width: 0; }
+.contract-history > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--bleu); }
+.contract-history ol { margin: 0; padding-left: var(--espace-6); }
+.contract-duplicate-note { border-left: 3px solid var(--bleu); padding-left: var(--espace-2); color: var(--gris); }
+.contracts-reset { margin-top: var(--espace-6); display: grid; gap: var(--espace-3); }
+.contracts-dialog { width: min(760px, calc(100% - 24px)); max-width: calc(100% - 24px); max-height: calc(100dvh - 24px); margin: auto; padding: var(--espace-4); border: 1px solid var(--bordure); border-radius: var(--rayon); background: var(--blanc); color: var(--anthracite); overflow-y: auto; overflow-x: hidden; }
+.contracts-dialog::backdrop { background: color-mix(in srgb, var(--anthracite) 45%, transparent); }
+.contracts-dialog form { display: grid; gap: var(--espace-4); min-width: 0; }
+.contracts-dialog form[aria-busy="true"] { opacity: .7; }
+.contracts-dialog h2, .contracts-dialog h3, .contracts-dialog p { overflow-wrap: anywhere; }
+.contracts-dialog .confirmation-actions { position: static; display: flex; flex-wrap: wrap; gap: var(--espace-2); margin-top: var(--espace-2); }
+.contracts-dialog .confirmation-actions > .button { flex: 1 1 130px; }
+.contracts-checklist-editor { border-top: 1px solid var(--bordure); padding-top: var(--espace-4); }
+.contract-zone { min-width: 0; border: 1px solid var(--bordure); border-radius: var(--rayon); background: var(--fond); padding: var(--espace-3); display: grid; gap: var(--espace-3); }
+.contract-line { min-width: 0; border-top: 1px solid var(--bordure); padding-top: var(--espace-3); display: grid; gap: var(--espace-2); }
+.contract-line textarea { min-height: 80px; }
+.contract-zone-tools, .contract-line-tools { display: flex; flex-wrap: wrap; gap: var(--espace-2); }
+.contract-zone-tools > .button, .contract-line-tools > .button { flex: 1 1 90px; min-width: 0; }
+.contract-duplicate-warning { border: 1px solid var(--bleu); border-radius: var(--rayon); background: var(--bleu-clair); padding: var(--espace-3); display: grid; gap: var(--espace-3); min-width: 0; }
+.contracts-error { color: var(--alerte); font-weight: 600; overflow-wrap: anywhere; }
+@media (min-width: 700px) {
+  .contracts-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .contracts-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .contracts-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+@media print { #contractsView, .contracts-dialog { display: none !important; } }

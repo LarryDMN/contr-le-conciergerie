@@ -11,22 +11,25 @@
     <title>Contrôle E. Blanco</title>
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=14">
-    <script src="config.js?v=14" defer></script>
+    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="contracts.css?v=15">
+    <script src="config.js?v=15" defer></script>
     <script src="data/conciergeries.js" defer></script>
-    <script src="checklists-conciergeries.js?v=14" defer></script>
-    <script src="data/bureaux.js?v=14" defer></script>
-    <script src="office-model.js?v=14" defer></script>
-    <script src="conciergerie-model.js?v=14" defer></script>
-    <script src="people.js?v=14" defer></script>
-    <script src="insights.js?v=14" defer></script>
+    <script src="checklists-conciergeries.js?v=15" defer></script>
+    <script src="data/bureaux.js?v=15" defer></script>
+    <script src="office-model.js?v=15" defer></script>
+    <script src="conciergerie-model.js?v=15" defer></script>
+    <script src="contracts.js?v=15" defer></script>
+    <script src="contracts-ui.js?v=15" defer></script>
+    <script src="people.js?v=15" defer></script>
+    <script src="insights.js?v=15" defer></script>
     <script src="vendor/jspdf.umd.min.js" defer></script>
     <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="pdf.js?v=14" defer></script>
-    <script src="lists.js?v=14" defer></script>
-    <script src="anomalies.js?v=14" defer></script>
-    <script src="transfer.js?v=14" defer></script>
-    <script src="app.js?v=14" defer></script>
+    <script src="pdf.js?v=15" defer></script>
+    <script src="lists.js?v=15" defer></script>
+    <script src="anomalies.js?v=15" defer></script>
+    <script src="transfer.js?v=15" defer></script>
+    <script src="app.js?v=15" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#homeView">Aller au contenu</a>
@@ -73,7 +76,25 @@
         <button id="menuNewControl" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true">+</span><span>Nouveau contrôle</span></button>
         <button id="menuAnomalies" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m12 3 10 17H2L12 3Zm0 6v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Suivi des anomalies</span></button>
         <button id="menuControls" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H5V3h1Zm8 0v5h5M8 12h8m-8 4h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Mes contrôles</span></button>
+        <button id="menuContracts" type="button" class="section-choice"><span class="section-choice-icon" aria-hidden="true">⌂</span><span>Gérer les immeubles</span></button>
       </div>
+    </main>
+
+    <main id="contractsView" class="contracts-view" tabindex="-1" hidden>
+      <section class="panel contracts-toolbar" aria-labelledby="contractsTitle">
+        <h2 id="contractsTitle">Gérer les immeubles</h2>
+        <p class="field-help">Les fiches et les checklists sont enregistrées sur cet appareil. Chaque contrôle garde ses informations historiques.</p>
+        <button id="contractAdd" type="button" class="button button-primary">Ajouter un immeuble</button>
+        <div class="contracts-filters">
+          <label class="form-field" for="contractStatusFilter"><span>Statut du contrat</span><select id="contractStatusFilter"><option value="active">Actifs</option><option value="archived">Archivés</option><option value="all">Tous</option></select></label>
+          <label class="form-field" for="contractClientFilter"><span>Client</span><select id="contractClientFilter"><option value="">Tous les clients</option></select></label>
+          <label class="form-field" for="contractSearch"><span>Rechercher</span><input id="contractSearch" type="search" placeholder="Nom, adresse, personne…" autocomplete="off"></label>
+        </div>
+        <p id="contractsCount" class="field-help" role="status" aria-live="polite"></p>
+      </section>
+      <div id="contractsList" class="contracts-list" aria-label="Immeubles de cette section"></div>
+      <nav class="list-pagination" aria-label="Pages des immeubles"><p id="contractsPageInfo" class="page-info" role="status">Page 1 sur 1</p><div class="pagination-buttons"><button id="contractsPrevious" type="button" class="button button-secondary">Précédent</button><button id="contractsNext" type="button" class="button button-secondary">Suivant</button></div></nav>
+      <section class="panel contracts-reset"><p class="field-help">Revenir aux fiches et checklists des fichiers de départ. Les contrôles, leurs photos, leurs PDF et les anomalies sont conservés.</p><button id="contractsReset" type="button" class="button button-danger">Réinitialiser à la liste de départ</button></section>
     </main>
 
     <main id="dashboardView" class="dashboard-view" tabindex="-1" hidden>
@@ -82,6 +103,7 @@
         <dl class="dashboard-summary-values"><div><dt>Contrôles enregistrés</dt><dd id="dashboardSummaryControls">0</dd></div><div><dt>Anomalies ouvertes</dt><dd id="dashboardSummaryAnomalies">0</dd></div><div><dt>Dernier contrôle</dt><dd id="dashboardSummaryDate">Aucun contrôle</dd></div></dl>
       </section>
       <div class="dashboard-tools"><label class="form-field" for="dashboardSort"><span>Trier les immeubles ou bureaux</span><select id="dashboardSort"><option value="anomalies">Anomalies (décroissant)</option><option value="name">Nom (de A à Z)</option><option value="date">Dernier contrôle (plus récent)</option></select></label></div>
+      <label class="selection-toggle" for="dashboardIncludeArchived"><input id="dashboardIncludeArchived" type="checkbox"><span>Afficher les immeubles archivés</span></label>
       <p class="dashboard-help">Moyenne sur les lignes notées du dernier contrôle. Touchez une carte pour retrouver les contrôles de ce site.</p>
       <p id="dashboardEmpty" class="list-empty" hidden>Aucun immeuble ou bureau dans cette activité.</p>
       <div id="dashboardCards" class="dashboard-cards" aria-label="Statistiques par immeuble ou bureau"></div>
@@ -98,6 +120,7 @@
           <label class="form-field" for="controlYearFilter"><span>Année</span><select id="controlYearFilter"><option value="">Toutes les années</option></select></label>
           <label class="form-field" for="controlMonthFilter"><span>Mois</span><select id="controlMonthFilter"><option value="">Tous les mois</option></select></label>
           <label class="form-field filter-wide" for="controlSearch"><span>Rechercher un contrôle</span><input id="controlSearch" type="search" placeholder="Immeuble, adresse, remarque…" autocomplete="off"></label>
+          <label class="selection-toggle" for="controlIncludeArchived"><input id="controlIncludeArchived" type="checkbox" checked><span>Y compris archivés</span></label>
         </div>
         <div class="list-selection-tools"><label class="selection-toggle" for="controlSelectAll"><input id="controlSelectAll" type="checkbox"><span>Tout sélectionner sur cette page</span></label><p id="controlListCount" class="control-list-count" role="status">0 contrôle</p></div>
         <div id="controlSelectionBar" class="selection-bar" aria-label="Actions sur les contrôles sélectionnés" hidden>
@@ -116,7 +139,7 @@
 
     <main id="anomaliesView" class="anomalies-view" tabindex="-1" hidden>
       <div class="anomaly-tabs" role="tablist" aria-label="Statut des anomalies"><button id="anomaliesOpenTab" type="button" role="tab" aria-selected="true" aria-controls="anomalyResults" tabindex="0">En cours</button><button id="anomaliesResolvedTab" type="button" role="tab" aria-selected="false" aria-controls="anomalyResults" tabindex="-1">Réglées</button></div>
-      <section class="anomaly-filters panel" aria-label="Filtrer les anomalies"><label class="form-field" for="anomalyBuildingFilter"><span>Immeuble ou bureau</span><select id="anomalyBuildingFilter"><option value="">Tous les immeubles ou bureaux</option></select></label><label class="form-field" for="anomalySearch"><span>Rechercher une anomalie</span><input id="anomalySearch" type="search" placeholder="Ligne, zone, remarque…" autocomplete="off"></label></section>
+      <section class="anomaly-filters panel" aria-label="Filtrer les anomalies"><label class="form-field" for="anomalyBuildingFilter"><span>Immeuble ou bureau</span><select id="anomalyBuildingFilter"><option value="">Tous les immeubles ou bureaux</option></select></label><label class="form-field" for="anomalySearch"><span>Rechercher une anomalie</span><input id="anomalySearch" type="search" placeholder="Ligne, zone, remarque…" autocomplete="off"></label><label class="selection-toggle" for="anomalyIncludeArchived"><input id="anomalyIncludeArchived" type="checkbox" checked><span>Y compris archivés</span></label></section>
       <div id="anomalyResults" role="tabpanel" aria-labelledby="anomaliesOpenTab"><p id="anomaliesEmpty" class="list-empty" hidden>Aucune anomalie en cours.</p><div id="anomalyList" class="anomaly-list" aria-label="Liste des anomalies"></div><div id="anomalyPagination"></div></div>
     </main>
 
@@ -126,6 +149,7 @@
 
         <div id="controlForm">
         <section class="control-header panel" aria-labelledby="controlHeaderTitle">
+          <p id="controlContractNotice" class="field-help" role="status" hidden></p>
           <div class="panel-heading"><h2 id="controlHeaderTitle">Informations du contrôle</h2></div>
           <div class="header-fields">
             <label id="buildingSelectField" class="form-field building-field" for="buildingSelect"><span><span id="buildingSelectLabel">Immeuble</span> <span class="required-label">(obligatoire)</span></span><select id="buildingSelect" required aria-describedby="buildingHelp"><option value="">Choisir un immeuble</option></select><span id="buildingHelp" class="field-help">Choisissez un immeuble pour commencer le contrôle. L’adresse est remplie automatiquement ; le nom reste modifiable.</span></label>
@@ -222,6 +246,7 @@
         <h2 id="importTitle">Importer les contrôles</h2>
         <p class="transfer-help">Vérifiez le résumé avant d’importer. Pour chaque identifiant déjà présent, choisissez de garder l’existant ou de le remplacer.</p>
         <p class="transfer-help">Sans PDF dans le fichier, les archives déjà présentes sont conservées.</p>
+        <label id="importSitesTools" class="selection-toggle" for="importReplaceSites"><input id="importReplaceSites" type="checkbox"><span>Remplacer les fiches d’immeubles déjà modifiées sur cet appareil, sans modifier les contrôles</span></label>
         <p id="importSummary" class="transfer-summary" role="status" aria-live="polite"></p>
         <div id="importConflictTools" class="transfer-presets" role="group" aria-label="Appliquer un choix à tous les doublons" hidden><button id="importKeepAll" type="button" class="button button-secondary">Garder tous les existants</button><button id="importReplaceAll" type="button" class="button button-secondary">Tout remplacer</button></div>
         <div id="importConflicts" class="import-conflicts" aria-label="Contrôles en doublon"></div>
@@ -255,6 +280,59 @@
       <p id="massConfirmExportStatus" class="confirmation-export-status" role="status" hidden></p>
       <div class="confirmation-actions"><button id="massConfirmExport" type="button" class="button button-secondary">Exporter d’abord (JSON)</button><button id="massConfirmCancel" type="button" class="button button-secondary" autofocus>Annuler</button><button id="massConfirmDelete" type="button" class="button button-danger">Confirmer la suppression</button></div>
     </dialog>
+    <dialog id="contractEditorDialog" class="contracts-dialog" aria-labelledby="contractEditorTitle">
+      <form id="contractEditorForm">
+        <h2 id="contractEditorTitle">Ajouter un immeuble</h2>
+        <p class="field-help">Les modifications s'appliquent aux prochaines visites. Les contrôles déjà enregistrés restent inchangés.</p>
+        <div class="contracts-form-grid">
+          <label class="form-field" for="contractName"><span>Nom</span><input id="contractName" type="text" required maxlength="500"></label>
+          <label class="form-field" for="contractAddress"><span>Adresse</span><input id="contractAddress" type="text" maxlength="2000"></label>
+          <label class="form-field" for="contractPerson"><span id="contractPersonLabel">Concierge (facultatif)</span><input id="contractPerson" type="text" maxlength="500" autocomplete="name"></label>
+          <label class="form-field" for="contractClient"><span>Client (facultatif)</span><input id="contractClient" type="text" maxlength="500" list="contractClients"></label><datalist id="contractClients"></datalist>
+          <label class="form-field" for="contractStartDate"><span>Date de début du contrat</span><input id="contractStartDate" type="date"></label>
+        </div>
+        <section class="contracts-checklist-editor" aria-labelledby="contractChecklistTitle">
+          <h3 id="contractChecklistTitle">Checklist de cet immeuble</h3>
+          <p class="field-help">Copiez un modèle de cette section ou ajoutez des zones et des lignes. Une checklist vide affiche « Checklist à compléter » dans un nouveau contrôle.</p>
+          <label class="form-field" for="contractCopyChecklist"><span>Copier une checklist existante</span><select id="contractCopyChecklist"><option value="">Choisir un modèle à copier</option></select></label>
+          <p id="contractChecklistCount" class="field-help" role="status"></p>
+          <div id="contractChecklistZones" class="contract-checklist-zones"></div>
+          <button id="contractAddZone" type="button" class="button button-secondary">Ajouter une zone</button>
+        </section>
+        <section id="contractDuplicateWarning" class="contract-duplicate-warning" aria-labelledby="contractDuplicateTitle" hidden>
+          <h3 id="contractDuplicateTitle">Adresse déjà connue</h3>
+          <p id="contractDuplicateMessage" role="status"></p>
+          <label id="contractDuplicateChoiceField" class="form-field" for="contractDuplicateChoice"><span>Immeuble archivé à réactiver</span><select id="contractDuplicateChoice"></select></label>
+          <p class="field-help">La réactivation garde la fiche, sa checklist et ses anciens contrôles. La date de début saisie devient celle du nouveau contrat.</p>
+          <div class="contract-actions"><button id="contractReactivateMatch" type="button" class="button button-primary">Réactiver cet immeuble</button><button id="contractCreateAnyway" type="button" class="button button-secondary">Créer quand même un nouvel immeuble</button></div>
+        </section>
+        <p id="contractEditorError" class="contracts-error" role="alert" hidden></p>
+        <div class="confirmation-actions"><button id="contractEditorCancel" type="button" class="button button-secondary">Annuler</button><button id="contractEditorSave" type="submit" class="button button-primary">Enregistrer la fiche</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="contractDateDialog" class="contracts-dialog contracts-date-dialog" aria-labelledby="contractDateTitle">
+      <form id="contractDateForm">
+        <h2 id="contractDateTitle">Archiver le contrat</h2>
+        <p id="contractDateDescription" class="field-help"></p>
+        <label class="form-field" for="contractDate"><span id="contractDateLabel">Date de fin du contrat</span><input id="contractDate" type="date" required></label>
+        <p id="contractDateError" class="contracts-error" role="alert" hidden></p>
+        <div class="confirmation-actions"><button id="contractDateCancel" type="button" class="button button-secondary">Annuler</button><button id="contractDateConfirm" type="submit" class="button button-primary">Archiver le contrat</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="contractMergeDialog" class="contracts-dialog" aria-labelledby="contractMergeTitle">
+      <form id="contractMergeForm">
+        <h2 id="contractMergeTitle">Fusionner deux fiches en doublon</h2>
+        <p id="contractMergeDescription" class="field-help"></p>
+        <label class="form-field" for="contractMergeTarget"><span>Fiche à conserver</span><select id="contractMergeTarget" required></select></label>
+        <p class="field-help">La fiche conservée garde son nom, son adresse et sa checklist. Tous les contrôles, leurs photos, leurs PDF et les anomalies restent conservés avec leurs informations historiques.</p>
+        <p id="contractMergeCount" class="field-help" role="status"></p>
+        <p id="contractMergeError" class="contracts-error" role="alert" hidden></p>
+        <div class="confirmation-actions"><button id="contractMergeCancel" type="button" class="button button-secondary">Annuler</button><button id="contractMergeConfirm" type="submit" class="button button-danger">Confirmer la fusion</button></div>
+      </form>
+    </dialog>
+
     <section id="printReport" aria-label="Document imprimable"></section>
     <noscript><div class="noscript-message">Activez JavaScript pour créer et enregistrer vos contrôles sur cet appareil.</div></noscript>
   </body>

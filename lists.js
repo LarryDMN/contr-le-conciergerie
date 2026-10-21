@@ -8,11 +8,12 @@
 
   function create({ controls, archives, typeLabels, buildingName, displayDate, ratedCount, escapeHTML,
     catalogs = {},
+    isArchived = () => false, contractEnd = () => null,
     itemCount = record => Object.keys(record.rows || {}).length,
     versionOf = record => record.updatedAt }) {
     const $ = id => document.getElementById(id);
     const states = new Map(Object.keys(typeLabels).map(type => [type, {
-      building: '', person: '', year: '', month: '', query: '', page: 0, selected: new Set()
+      building: '', person: '', year: '', month: '', query: '', includeArchived: true, page: 0, selected: new Set()
     }]));
     const archiveState = { page: 0, selected: new Set(), query: '' };
     const controlProjections = new Map();
@@ -31,14 +32,15 @@
     // Les textes de recherche sont recalculés pour les seules fiches modifiées.
     // Les photos et leurs grandes chaînes base64 ne sont jamais parcourues ici.
     function controlProjection(record) {
+      const endDate = contractEnd(record);
       const key = JSON.stringify([versionOf(record), record.updatedAt, record.date, record.buildingId, record.buildingName,
-        record.address, window.CONTROL_PEOPLE.name(record), record.photosRemovedAt]);
+        record.address, window.CONTROL_PEOPLE.name(record), record.photosRemovedAt, endDate]);
       const cached = controlProjections.get(record.id);
       if (cached?.key === key && cached.record === record) return cached;
       const name = buildingName(record);
       const date = displayDate(record.date);
       const person = window.CONTROL_PEOPLE.display(record);
-      const projection = { key, record, id: record.id, name, date, person, building: buildingKey(record),
+      const projection = { key, record, id: record.id, name, date, person, endDate, building: buildingKey(record),
         year: record.date.slice(0, 4), month: record.date.slice(5, 7), rated: ratedCount(record), total: itemCount(record),
         search: searchable([name, record.address, person, record.date, date,
           ...Object.values(record.rows || {}).map(row => row.remark), record.comments?.text].join(' ')) };
@@ -111,10 +113,14 @@
       currentId = selectedId;
       prune();
       const state = states.get(type);
-      const records = [...controls.values()].filter(record => record.type === type).sort((a, b) =>
+      if ($('controlIncludeArchived')) $('controlIncludeArchived').checked = state.includeArchived;
+      const allRecords = [...controls.values()].filter(record => record.type === type);
+      const records = allRecords.filter(record => state.includeArchived || !isArchived(record)).sort((a, b) =>
         b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt)).map(controlProjection);
       // Les sites du catalogue restent filtrables lorsqu'ils n'ont aucun contrôle.
-      const buildings = new Map((catalogs[type] || []).map(site => [`id:${site.id}`, site.nom || site.adresse]));
+      const buildings = new Map((catalogs[type] || [])
+        .filter(site => state.includeArchived || !isArchived({ type, buildingId: site.id }))
+        .map(site => [`id:${site.id}`, site.nom || site.adresse]));
       records.forEach(record => { if (!buildings.has(record.building)) buildings.set(record.building, record.name); });
       fillSelect('controlBuildingFilter', [...buildings].sort((a, b) => a[1].localeCompare(b[1], 'fr')),
         type === 'bureaux' ? 'Tous les bureaux' : 'Tous les immeubles', state, 'building');
@@ -132,14 +138,14 @@
       updatePagination('control', state, filtered.length);
       const page = filtered.slice(state.page * PAGE_SIZE, (state.page + 1) * PAGE_SIZE);
       visibleControls = page.map(record => record.id);
-      $('controlListCount').textContent = `${filtered.length} contrôle${filtered.length === 1 ? '' : 's'} affichable${filtered.length === 1 ? '' : 's'} sur ${records.length}`;
+      $('controlListCount').textContent = `${filtered.length} contrôle${filtered.length === 1 ? '' : 's'} affichable${filtered.length === 1 ? '' : 's'} sur ${allRecords.length}`;
 
       // Une remarque ne change pas le résumé affiché : conserver le DOM évite de
       // perdre le focus des cases et de recréer la liste à chaque frappe.
-      const signature = JSON.stringify([type, currentId, filtered.length, page.map(({ record, id, name, date, person, rated, total }) =>
-        [id, name, date, person, rated, total, record.photosRemovedAt])]);
+      const signature = JSON.stringify([type, currentId, filtered.length, page.map(({ record, id, name, date, person, rated, total, endDate }) =>
+        [id, name, date, person, rated, total, endDate, record.photosRemovedAt])]);
       if (signature !== controlSignature) {
-        $('controlList').innerHTML = page.map(({ record, id, name, date, person, rated, total }) => `
+        $('controlList').innerHTML = page.map(({ record, id, name, date, person, rated, total, endDate }) => `
           <div class="saved-control ${id === currentId ? 'active' : ''}">
             <label class="selection-check"><input type="checkbox" data-select-control="${escapeHTML(id)}" value="${escapeHTML(id)}">
               <span class="visually-hidden">Sélectionner ${escapeHTML(name)}, contrôle du ${escapeHTML(date)}</span></label>
@@ -147,6 +153,7 @@
               <span class="control-date">${escapeHTML(date)}</span><span class="control-address">${escapeHTML(name)}</span>
               <span class="control-meta">${escapeHTML(person)}
                 <span>${rated} / ${total}</span></span>
+              ${endDate ? `<span class="control-meta">Contrat terminé le ${escapeHTML(displayDate(endDate))}</span>` : ''}
               ${record.photosRemovedAt ? '<span class="photos-removed-list">Photos retirées</span>' : ''}
             </button>
             <div class="saved-control-actions">
@@ -155,7 +162,7 @@
               <button type="button" class="button button-danger" data-delete-control="${escapeHTML(id)}"
                 aria-label="Supprimer le contrôle de ${escapeHTML(name)}, du ${escapeHTML(date)}">Supprimer</button>
             </div>
-          </div>`).join('') || `<p class="list-empty">${records.length ? 'Aucun contrôle ne correspond à ces filtres.' : 'Aucun contrôle enregistré dans cette section.'}</p>`;
+          </div>`).join('') || `<p class="list-empty">${allRecords.length ? 'Aucun contrôle ne correspond à ces filtres.' : 'Aucun contrôle enregistré dans cette section.'}</p>`;
         $('controlList').scrollTop = 0;
         controlSignature = signature;
       }
@@ -234,6 +241,14 @@
           renderControls();
         });
       });
+      // Masquer les contrats terminés ne retire pas les contrôles déjà choisis
+      // pour un export ou une suppression : leur sélection reste explicite.
+      $('controlIncludeArchived')?.addEventListener('change', event => {
+        const state = states.get(activeType);
+        state.includeArchived = event.target.checked;
+        state.page = 0;
+        renderControls();
+      });
       $('folderSearch').addEventListener('input', renderArchives);
       [['control', () => states.get(activeType), () => visibleControls, renderControls],
         ['archive', () => archiveState, () => visibleArchives, renderArchives]].forEach(([prefix, getState, getVisible, render]) => {
@@ -264,6 +279,9 @@
       state.year = '';
       state.month = '';
       state.query = '';
+      // Une carte archivée du tableau de bord doit pouvoir ouvrir ses contrôles,
+      // même si le dernier filtre de cette section masquait les contrats terminés.
+      state.includeArchived = true;
       state.page = 0;
       state.selected.clear();
       renderControls(type, selectedId);
